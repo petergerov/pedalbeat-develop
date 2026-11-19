@@ -134,8 +134,11 @@ enum Recipes {
             D(.crash, 52, layers: 3, rr: 4, sec: 1.6, db: 7),
             D(.ride, 50, layers: 3, rr: 4, sec: 1.5, db: 0),
             D(.rideBell, 51, layers: 3, rr: 4, sec: 1.3, db: 5),
-            Sweep([SweepLayer(note: 57, hiVelocity: 90),
-                   SweepLayer(note: 57, hiVelocity: 127)],
+            // Finger rolls: light / medium / hard via the library's roll volume (CC11), as it does
+            // itself. Velocity doesn't change the rolls; the other roll positions (CC1) are far quieter.
+            Sweep([SweepLayer(note: 57, hiVelocity: 80, cc: [11: 64]),
+                   SweepLayer(note: 57, hiVelocity: 108, cc: [11: 90]),
+                   SweepLayer(note: 57, hiVelocity: 127, cc: [11: 127])],
                   rr: 5, sec: 8, db: 5),
         ])
 
@@ -166,8 +169,11 @@ enum Recipes {
             D(.crash, 52, layers: 3, rr: 4, sec: 1.6, db: 7),
             D(.ride, 48, layers: 3, rr: 4, sec: 1.5, db: 2),
             D(.rideBell, 51, layers: 3, rr: 4, sec: 1.3, db: 5),
-            Sweep([SweepLayer(note: 57, hiVelocity: 90),
-                   SweepLayer(note: 57, hiVelocity: 127)],
+            // Finger rolls: light / medium / hard via the library's roll volume (CC11), as it does
+            // itself. Velocity doesn't change the rolls; the other roll positions (CC1) are far quieter.
+            Sweep([SweepLayer(note: 57, hiVelocity: 80, cc: [11: 64]),
+                   SweepLayer(note: 57, hiVelocity: 108, cc: [11: 90]),
+                   SweepLayer(note: 57, hiVelocity: 127, cc: [11: 127])],
                   rr: 5, sec: 8, db: 5),
         ])
 

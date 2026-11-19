@@ -57,14 +57,18 @@ struct DrumRecipe {
     /// Sustained sweep: each entry is (note, top velocity of the layer); rendered without the
     /// library's envelope and kept as long continuous recordings.
     var sweepLayers: [SweepLayer]? = nil
+    /// Sweep layers are leveled by RMS; each sits at least this much louder than the one below.
+    var sweepStepDB = 3.0
 }
 
 /// One sweep velocity layer. `swap` renders the note's regions with a different sample
 /// file (for recordings the library ships but doesn't map, e.g. its hardest stir).
+/// `cc` overrides controllers for this layer only (e.g. a roll position).
 struct SweepLayer {
     var note: Int
     var hiVelocity: Int
     var swap: (from: String, to: String)? = nil
+    var cc: [Int: Double] = [:]
 }
 
 struct KitRecipe {
@@ -84,9 +88,10 @@ func D(_ d: Drum, _ note: Int, layers: Int = 5, rr: Int = 3, sec: Double = 1.2, 
     DrumRecipe(drum: d, note: note, layers: layers, rr: rr, seconds: sec, gainDB: db, pan: pan, cc: cc, program: program)
 }
 
-func Sweep(_ layers: [SweepLayer], rr: Int = 3, sec: Double = 6, db: Double = 0) -> DrumRecipe {
+func Sweep(_ layers: [SweepLayer], rr: Int = 3, sec: Double = 6, db: Double = 0, stepDB: Double = 3) -> DrumRecipe {
     var r = DrumRecipe(drum: .brushSweep, note: layers[0].note, layers: layers.count, rr: rr, seconds: sec, gainDB: db)
     r.sweepLayers = layers
+    r.sweepStepDB = stepDB
     return r
 }
 
@@ -97,6 +102,21 @@ let recipes: [KitRecipe] = Recipes.all
 struct Built { var manifest: KitManifest; var audio: [Int16] }
 
 func dB(_ x: Float) -> Float { 20 * log10(max(x, 1e-9)) }
+
+/// How far (dB) the quietest 20 ms of a sweep take falls below its median 20 ms level.
+func sweepDip(_ h: HitRender, rate: Double) -> Float {
+    let win = Int(0.02 * rate)
+    var levels: [Float] = []
+    var i = 0
+    while i + win <= h.left.count {
+        var acc: Float = 0
+        for k in i..<(i + win) { let m = (h.left[k] + h.right[k]) * 0.5; acc += m * m }
+        levels.append(10 * log10(acc / Float(win) + 1e-20))
+        i += win
+    }
+    guard let lowest = levels.min() else { return 0 }
+    return levels.sorted()[levels.count / 2] - lowest
+}
 
 func build(_ k: KitRecipe, sources: URL, outRate: Double) throws -> Built {
     let root = sources.appendingPathComponent(k.dir)
@@ -139,24 +159,48 @@ func build(_ k: KitRecipe, sources: URL, outRate: Double) throws -> Built {
         chosen.sort()
         let sweep = dr.sweepLayers != nil
         // (note to render, velocity to render at, layer's top velocity in the kit)
-        let sources: [(note: Int, vel: Int, hi: Int, swap: (from: String, to: String)?)] =
-            dr.sweepLayers.map { $0.map { (note: $0.note, vel: 127, hi: $0.hiVelocity, swap: $0.swap) } }
-            ?? chosen.map { (note: dr.note, vel: $0, hi: $0, swap: nil) }
+        let sources: [(note: Int, vel: Int, hi: Int, swap: (from: String, to: String)?, cc: [Int: Double])] =
+            dr.sweepLayers.map { $0.map { (note: $0.note, vel: 127, hi: $0.hiVelocity, swap: $0.swap, cc: $0.cc) } }
+            ?? chosen.map { (note: dr.note, vel: $0, hi: $0, swap: nil, cc: [:]) }
 
         var layers: [(Int, [(Int, Int, Float)])] = []
+        var layerRMS: [[Float]] = []   // sweeps: RMS (dB) of each region, for leveling
         var drumPeak: Float = 0
         for src in sources {
             let top = src.vel
+            let cc = cc.merging(src.cc) { $1 }
             let regsAtVel = prog.candidates(note: src.note, cc: cc).filter { prog.velRange($0).contains(top) }
             let natural = prog.naturalRR(regsAtVel)
-            let rrCount = max(1, min(dr.rr, natural))
+            // Sweeps with random start offsets get their variety from the offsets, so they can
+            // have more round robins than the library cycles through.
+            let offsets = sweep && regsAtVel.contains { $0.has("offset_random") }
+            let rrCount = offsets ? max(1, dr.rr) : max(1, min(dr.rr, natural))
             var regions: [(Int, Int, Float)] = []
+            var rms: [Float] = []
             for rr in 0..<rrCount {
                 // Spread the chosen round robins across the library's full cycle.
-                let srcRR = natural <= rrCount ? rr : rr * natural / rrCount
-                let hit = try prog.render(note: src.note, vel: top, rr: srcRR, rrCount: natural, cc: cc,
-                                          outRate: outRate, maxSeconds: dr.seconds, cache: cache, envelope: !sweep,
-                                          sampleSwap: src.swap)
+                let srcRR = natural <= rrCount ? rr % natural : rr * natural / rrCount
+                func render(_ n: Int) throws -> HitRender {
+                    try prog.render(note: src.note, vel: top, rr: srcRR, rrCount: natural, cc: cc,
+                                    outRate: outRate, maxSeconds: dr.seconds, cache: cache, envelope: !sweep,
+                                    sampleSwap: src.swap,
+                                    randomOffset: offsets ? (Double(n) * 0.618034).truncatingRemainder(dividingBy: 1) : nil)
+                }
+                var hit = try render(rr)
+                if offsets {
+                    // Sweeps play from a random point, so a take must not drop out anywhere: try
+                    // other start offsets (distinct per round robin) until the quietest 20 ms stays
+                    // within 12 dB of the take's median, else keep the take with the smallest dip.
+                    var best = (hit, sweepDip(hit, rate: outRate))
+                    var k = 1
+                    while best.1 > 12 && k < 32 {
+                        let h = try render(rr + k * rrCount)
+                        let d = sweepDip(h, rate: outRate)
+                        if d < best.1 { best = (h, d) }
+                        k += 1
+                    }
+                    hit = best.0
+                }
                 guard hit.regionCount > 0, !hit.left.isEmpty else { continue }
                 var L = hit.left, R = hit.right
                 var peak: Float = 0
@@ -190,11 +234,35 @@ func build(_ k: KitRecipe, sources: URL, outRate: Double) throws -> Built {
                 }
                 regions.append((start, L.count, peak))
                 drumPeak = max(drumPeak, peak)
+                if sweep {
+                    var acc: Double = 0
+                    for i in 0..<L.count { acc += Double(L[i] * L[i] + R[i] * R[i]) }
+                    rms.append(Float(10 * log10(acc / Double(2 * L.count) + 1e-20)))
+                }
             }
-            if !regions.isEmpty { layers.append((src.hi, regions)) }
+            if !regions.isEmpty { layers.append((src.hi, regions)); layerRMS.append(rms) }
         }
         cache.clear()
         guard !layers.isEmpty else { print("  ! \(dr.drum.key): nothing rendered"); continue }
+        if sweep {
+            // Level sweeps by RMS, not peak: every take of a layer plays at the layer's level, and
+            // each layer is at least `sweepStepDB` louder than the one below, so light / medium /
+            // hard sweeps always get louder even when the recordings are about equally loud.
+            var target: [Float] = []
+            for (i, r) in layerRMS.enumerated() {
+                let natural = r.reduce(0, +) / Float(max(r.count, 1))
+                target.append(i == 0 ? natural : max(natural, target[i - 1] + Float(dr.sweepStepDB)))
+            }
+            drumPeak = 0
+            for i in layers.indices {
+                for j in layers[i].1.indices {
+                    layers[i].1[j].2 *= pow(10, (target[i] - layerRMS[i][j]) / 20)
+                    drumPeak = max(drumPeak, layers[i].1[j].2)
+                }
+            }
+            print("  \(dr.drum.key) levels: " + zip(layerRMS, target).map { r, t in
+                String(format: "%.1f→%.1f dB", r.reduce(0, +) / Float(max(r.count, 1)), t) }.joined(separator: ", "))
+        }
         let g = pow(10, Float(dr.gainDB) / 20)
         if dr.drum == .kick || dr.drum == .snare { kitPeak = max(kitPeak, drumPeak * g) }
         pending.append(Pending(drum: dr.drum, layers: layers, gain: g, pan: dr.pan, sweep: sweep))

@@ -386,13 +386,14 @@ extension SFZProgram {
     /// Mixes all regions that play for (note, vel, rr) into a stereo buffer at `outRate`.
     func render(note: Int, vel: Int, rr: Int, rrCount: Int, cc: [Int: Double], outRate: Double,
                 maxSeconds: Double, cache: AudioCache, envelope: Bool = true,
-                sampleSwap: (from: String, to: String)? = nil) throws -> HitRender {
+                sampleSwap: (from: String, to: String)? = nil,
+                randomOffset: Double? = nil) throws -> HitRender {
         let regs = candidates(note: note, cc: cc).filter { velRange($0).contains(vel) && plays($0, rr: rr, rrCount: rrCount) }
         let maxFrames = Int(maxSeconds * outRate) + 1
         var L = [Float](repeating: 0, count: maxFrames), R = [Float](repeating: 0, count: maxFrames)
         var used = 0
         var longest = 0
-        for r in regs {
+        for (regionIndex, r) in regs.enumerated() {
             var gain = velocityGain(r, vel: vel) * xfadeGain(r, vel: vel, cc: cc)
             let volDB = modulated(r, "volume", 0, cc: cc) + modulated(r, "gain", 0, cc: cc)
                 + r.num("global_volume", 0) + r.num("master_volume", 0) + r.num("group_volume", 0)
@@ -432,7 +433,13 @@ extension SFZProgram {
             let decay = max(modulated(r, "ampeg_decay", 0, cc: cc), 0)
             let sustain = min(max(modulated(r, "ampeg_sustain", 100, cc: cc), 0), 100) / 100
 
-            let offset = Int(r.num("offset", 0))
+            // `offset_random`: a fixed point (0...1) of the random range instead of a random one, so
+            // builds are reproducible. Regions get different points so layered loops don't line up.
+            var offset = Int(r.num("offset", 0))
+            if let x = randomOffset, r.has("offset_random") {
+                let k = Double(regionIndex) * 0.381966
+                offset += Int(r.num("offset_random", 0) * (x + k).truncatingRemainder(dividingBy: 1))
+            }
             let endIdx = r.has("end") ? min(Int(r.num("end", 0)), src[0].count - 1) : src[0].count - 1
             guard endIdx > offset + 4 else { continue }
             let s0 = src[0], s1 = src.count > 1 ? src[1] : src[0]
