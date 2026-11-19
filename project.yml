@@ -1,0 +1,150 @@
+name: PedalBeat
+options:
+  bundleIdPrefix: com.pedalbeat
+  deploymentTarget:
+    macOS: "15.0"
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: 73DGAYU6A5
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+targetTemplates:
+  AUExtension:
+    type: app-extension
+    sources:
+      - Core
+      - Extension
+    settings:
+      base:
+        SWIFT_OPTIMIZATION_LEVEL: "-O"
+        SWIFT_COMPILATION_MODE: wholemodule
+        SKIP_INSTALL: YES
+    info:
+      path: Extension/Info.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.AudioUnit-UI
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+          NSExtensionAttributes:
+            AudioComponents:
+              - name: "PedalBeat: PedalBeat Drums"
+                description: "Pedal-style drum machine"
+                manufacturer: PdBt
+                type: aumu
+                subtype: pdbt
+                version: 65536
+                sandboxSafe: true
+                factoryFunction: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+                tags:
+                  - Drums
+                  - Synthesizer
+
+targets:
+  PedalBeat-macOS:
+    type: application
+    platform: macOS
+    sources: [App]
+    dependencies:
+      - target: PedalBeatAU-macOS
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeat
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: App/PedalBeat-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.usb: true
+    info:
+      path: App/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        LSApplicationCategoryType: public.app-category.music
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        NSMicrophoneUsageDescription: "PedalBeat doesn't record audio; this is required by the audio engine."
+
+  PedalBeatAU-macOS:
+    templates: [AUExtension]
+    platform: macOS
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeatAU
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app.au
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: Extension/PedalBeatAU-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+
+  PedalBeat-iOS:
+    type: application
+    platform: iOS
+    sources: [App]
+    dependencies:
+      - target: PedalBeatAU-iOS
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeat
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+    info:
+      path: App/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        UILaunchScreen: {}
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        UIBackgroundModes: [audio]
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+  PedalBeatAU-iOS:
+    templates: [AUExtension]
+    platform: iOS
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeatAU
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app.au
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
