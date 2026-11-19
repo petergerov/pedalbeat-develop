@@ -653,7 +653,10 @@ let kitManager = KitManager(engine: engine, directory: tmpKits)
 func waitForKit(_ id: String?) -> Bool {
     for _ in 0..<500 {
         engine.beginRender(); engine.render(frames: frames, left: L, right: R, hostTempo: nil, hostPlaying: nil)
-        if kitManager.activeSampleKitID == id && !kitManager.isLoading { return true }
+        // Loaded, and the audio thread has picked it up (the kit may be published just after
+        // this block's render; then the next render takes it).
+        if kitManager.activeSampleKitID == id && !kitManager.isLoading
+            && engine.sampleKitInUse == engine.publishedSampleKit { return true }
         usleep(10_000)
     }
     return false
@@ -676,7 +679,8 @@ for f in kitFiles {
         kitManager.select(index: idx)
         check(waitForKit(m.id), "\(m.name): kit did not load")
         let loadMs = Date().timeIntervalSince(t) * 1000
-        check(engine.sampleKitInUse != 0, "\(m.name): audio thread not using kit")
+        check(engine.sampleKitInUse != 0 && engine.sampleKitInUse == engine.publishedSampleKit,
+              "\(m.name): audio thread not using kit")
         let songName = demoForCategory[m.category] ?? "Rock 1"
         guard let s = library.songs.first(where: { $0.name.hasPrefix(songName + " ") }) else { continue }
         let beat = 60 / s.tempo
