@@ -28,14 +28,14 @@
 		4BE4CD1F11D1667C56A42A96 /* AudioUnitViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC1BBCF042F59416E3FE6855 /* AudioUnitViewController.swift */; };
 		4F28CE4D5F9332A7E090BC1A /* SongIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE8DAC52DCDBF415A6C1C32A /* SongIndex.swift */; };
 		527975B572BAD050567E0FA8 /* SongIndexData.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA2CF5463DAB783FBCC9DDF4 /* SongIndexData.swift */; };
-		62BA1BE23EA388E7DA752D5D /* BBSImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A127850DB10770B2C6D819 /* BBSImport.swift */; };
 		7256B1372D3CA81FF8DEC409 /* FactoryLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CBF9EE074D2082860F6E85 /* FactoryLibrary.swift */; };
+		72E1A8541A17377CCEF81C48 /* BBSImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99974787381F977C2522907 /* BBSImport.swift */; };
+		76EA2CAF8D94E0CD99848966 /* BBSImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = D99974787381F977C2522907 /* BBSImport.swift */; };
 		8405ECADDE6A3F88D81C9BCA /* FactoryLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61CBF9EE074D2082860F6E85 /* FactoryLibrary.swift */; };
 		87050EAAE81305AFCC38062D /* PedalBeatAudioUnit.swift in Sources */ = {isa = PBXBuildFile; fileRef = A13001B88122D4AE3465121C /* PedalBeatAudioUnit.swift */; };
 		895B659F1C90EF8CE70FC1C7 /* Info-macOS.plist in Resources */ = {isa = PBXBuildFile; fileRef = 51ADCA51C190E6A8B67A1D54 /* Info-macOS.plist */; };
 		938D2498CB814B880899103D /* PedalBeatAU-macOS.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B61EE7B91181D0E205CD5270 /* PedalBeatAU-macOS.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		9FFBA037D46622683817CB7B /* PatternDSL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CF70D63C9BA2BA732C630E /* PatternDSL.swift */; };
-		A1072FC4EE59C9DC1D2E1E08 /* BBSImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57A127850DB10770B2C6D819 /* BBSImport.swift */; };
 		BB906E1AE60F7328212FAA43 /* Sequencer.swift in Sources */ = {isa = PBXBuildFile; fileRef = EA4329151496033C4674AED6 /* Sequencer.swift */; };
 		BD9EDB09F626C866FD762335 /* SongEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8F4C8764B7F2AF50E62F270 /* SongEditorView.swift */; };
 		C29C7BDA1DD3F643946C08A1 /* PedalBeatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7DA613164442F53BAF50B2 /* PedalBeatApp.swift */; };
@@ -110,7 +110,6 @@
 		32D96DB03A8626D986BC7989 /* SampleKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleKit.swift; sourceTree = "<group>"; };
 		4A217A417F5D7E23F5F8F514 /* SongStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongStore.swift; sourceTree = "<group>"; };
 		51ADCA51C190E6A8B67A1D54 /* Info-macOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-macOS.plist"; sourceTree = "<group>"; };
-		57A127850DB10770B2C6D819 /* BBSImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BBSImport.swift; sourceTree = "<group>"; };
 		61CBF9EE074D2082860F6E85 /* FactoryLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FactoryLibrary.swift; sourceTree = "<group>"; };
 		76B537765DE944ACBF3AB59D /* PedalBeat-iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "PedalBeat-iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7910D05A7E119DD2D317EA5D /* MIDIFolderImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIFolderImport.swift; sourceTree = "<group>"; };
@@ -126,6 +125,7 @@
 		C35E5263DA0BB305AE86308A /* PedalBeatAU-iOS.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = "PedalBeatAU-iOS.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC1BBCF042F59416E3FE6855 /* AudioUnitViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioUnitViewController.swift; sourceTree = "<group>"; };
 		D7901E6746E98660472C07D7 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
+		D99974787381F977C2522907 /* BBSImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BBSImport.swift; sourceTree = "<group>"; };
 		DA2CF5463DAB783FBCC9DDF4 /* SongIndexData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIndexData.swift; sourceTree = "<group>"; };
 		EA4329151496033C4674AED6 /* Sequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sequencer.swift; sourceTree = "<group>"; };
 		F4DAEB376DC5CBFE1A81565D /* Info-iOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = "Info-iOS.plist"; sourceTree = "<group>"; };
@@ -147,7 +147,7 @@
 		1AE98CA0FC7F248C73DC3BB1 /* Core */ = {
 			isa = PBXGroup;
 			children = (
-				57A127850DB10770B2C6D819 /* BBSImport.swift */,
+				D99974787381F977C2522907 /* BBSImport.swift */,
 				A4226508DB2BF382654F7690 /* Drum.swift */,
 				C1EE47D872E0F4A8219286A3 /* DrumEngine.swift */,
 				61CBF9EE074D2082860F6E85 /* FactoryLibrary.swift */,
@@ -298,19 +298,19 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					5C77C28FD226589E5E07A13F = {
-						DevelopmentTeam = 73DGAYU6A5;
+						DevelopmentTeam = C9LBGZNZ6P;
 						ProvisioningStyle = Manual;
 					};
 					79FF24A6A0BCA390304B3417 = {
-						DevelopmentTeam = 73DGAYU6A5;
+						DevelopmentTeam = C9LBGZNZ6P;
 						ProvisioningStyle = Automatic;
 					};
 					9E4A24A1729B6F09E33DA6FD = {
-						DevelopmentTeam = 73DGAYU6A5;
+						DevelopmentTeam = C9LBGZNZ6P;
 						ProvisioningStyle = Manual;
 					};
 					B937A719ABCAB9FDFE84FB8A = {
-						DevelopmentTeam = 73DGAYU6A5;
+						DevelopmentTeam = C9LBGZNZ6P;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -371,7 +371,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4BE4CD1F11D1667C56A42A96 /* AudioUnitViewController.swift in Sources */,
-				A1072FC4EE59C9DC1D2E1E08 /* BBSImport.swift in Sources */,
+				72E1A8541A17377CCEF81C48 /* BBSImport.swift in Sources */,
 				DFBC84A6E7C97593102174FC /* Drum.swift in Sources */,
 				4183F12EBE465F8FDD501B8B /* DrumEngine.swift in Sources */,
 				8405ECADDE6A3F88D81C9BCA /* FactoryLibrary.swift in Sources */,
@@ -398,7 +398,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F831F4367517248BD938B5D8 /* AudioUnitViewController.swift in Sources */,
-				62BA1BE23EA388E7DA752D5D /* BBSImport.swift in Sources */,
+				76EA2CAF8D94E0CD99848966 /* BBSImport.swift in Sources */,
 				D00A9BDD18DD3EDEF39300A4 /* Drum.swift in Sources */,
 				3263FBA7F273EB52C393BE33 /* DrumEngine.swift in Sources */,
 				7256B1372D3CA81FF8DEC409 /* FactoryLibrary.swift in Sources */,
@@ -520,7 +520,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = 73DGAYU6A5;
+				DEVELOPMENT_TEAM = C9LBGZNZ6P;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -632,7 +632,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = 73DGAYU6A5;
+				DEVELOPMENT_TEAM = C9LBGZNZ6P;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
