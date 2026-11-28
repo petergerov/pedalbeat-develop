@@ -43,10 +43,16 @@ final class BassFollow: @unchecked Sendable {
     /// Guitar audio. Always updates the input meter; when on, a detected chord becomes pending.
     func feedAudio(left: UnsafePointer<Float>, right: UnsafePointer<Float>?, frames: Int) {
         detector.songRoot = follower.songRoot
-        // Solitito reports ~once per 0.1 s; chroma path ~once per 23 ms hop.
-        follower.slowConfirmCount = detector.isSolititoActive ? 2 : 4
         let chord = detector.process(left: left, right: right, frames: frames)
-        if isOn, let chord { follower.setLiveChord(chord) }
+        guard isOn, let chord else { return }
+        // Solitito reports ~once per 0.1 s; chroma path ~once per 23 ms hop. With the song's chord
+        // profile, a chord the song plays a lot needs one confirmation less (and may change on any
+        // beat under Strong Beats), one the song never plays one more.
+        var confirm = detector.isSolititoActive ? 2 : 4
+        let weight = detector.songWeight(chord)
+        if let w = weight { if w >= 0.25 { confirm -= 1 } else if w < 0.02 { confirm += 1 } }
+        follower.slowConfirmCount = max(1, confirm)
+        follower.setLiveChord(chord, inSong: (weight ?? 0) >= 0.25)
     }
 
     /// A MIDI note message (status without channel, note, velocity). Returns true when it was
@@ -68,7 +74,13 @@ final class BassFollow: @unchecked Sendable {
     // MARK: Sequencer (audio thread)
 
     /// Pitch class the song's bass line is written in.
-    func setSongRoot(_ root: Int) { follower.songRoot = root }
+    func setSongRoot(_ root: Int) {
+        follower.songRoot = root
+        detector.songRoot = root
+    }
+
+    /// The song's chord profile (`SongData.chordProfile`; empty = none). Audio thread, no allocation.
+    func setSongChords(_ profile: UnsafeBufferPointer<Float>) { detector.setSongChords(profile) }
 
     /// True while chords should be applied on beat lines.
     var followsBeats: Bool { follower.enabled }
@@ -79,5 +91,5 @@ final class BassFollow: @unchecked Sendable {
     }
 
     /// A written bass note moved to the current chord.
-    func transposed(_ note: UInt8) -> UInt8 { ChordFollower.transpose(note, by: follower.transpose) }
+    func transposed(_ note: UInt8) -> UInt8 { follower.followed(note) }
 }

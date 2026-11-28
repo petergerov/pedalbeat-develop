@@ -83,7 +83,8 @@ public enum ContentPack {
     public enum PackError: Error { case notAPack, unsupportedVersion(Int), truncated, badValue }
 
     static let magic: [UInt8] = Array("PBCP".utf8)
-    static let version: UInt32 = 2
+    /// 2: one bass line per fill. 3: each song's chord profile (`SongData.chordProfile`).
+    static let version: UInt32 = 3
 
     // MARK: Encoding
 
@@ -108,6 +109,14 @@ public enum ContentPack {
                 w.bass(p.bass)
                 for k in 0..<p.fills.count { w.bass(k < p.fillBass.count ? p.fillBass[k] : nil) }
             }
+            // Chord profile: the chords it plays, each with its share in 1/255 of the most played one.
+            let peak = s.chordProfile.max() ?? 0
+            let chords = peak > 0 ? s.chordProfile.prefix(24).enumerated().compactMap { i, v -> (Int, UInt8)? in
+                let q = Int((v / peak * 255).rounded())
+                return q > 0 ? (i, UInt8(min(q, 255))) : nil
+            } : []
+            w.u8(UInt8(chords.count))
+            for (i, q) in chords { w.u8(UInt8(i)); w.u8(q) }
         }
         w.u32(UInt32(c.percussion.count))
         for l in c.percussion {
@@ -131,7 +140,7 @@ public enum ContentPack {
             var r = Reader(raw)
             guard try r.bytes(4) == magic else { throw PackError.notAPack }
             let v = try r.u32()
-            guard v == 1 || v == version else { throw PackError.unsupportedVersion(Int(v)) }
+            guard (1...version).contains(v) else { throw PackError.unsupportedVersion(Int(v)) }
             var songs: [SongData] = []
             let songCount = try r.count()
             songs.reserveCapacity(songCount)
@@ -160,6 +169,18 @@ public enum ContentPack {
                                  isUser: flags & 8 != 0, key: key, bassRootPitchClass: root)
                 s.bassEnabled = flags & 4 != 0
                 s.introBass = introBass; s.transitionBass = transitionBass; s.outroBass = outroBass
+                if v >= 3 {
+                    let n = Int(try r.u8())
+                    if n > 0 {
+                        var profile = [Float](repeating: 0, count: 24)
+                        for _ in 0..<n {
+                            let i = Int(try r.u8()), q = try r.u8()
+                            guard i < 24 else { throw PackError.badValue }
+                            profile[i] = Float(q) / 255
+                        }
+                        s.chordProfile = profile
+                    }
+                }
                 songs.append(s)
             }
             var layers: [Layer] = []

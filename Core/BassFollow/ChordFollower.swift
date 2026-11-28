@@ -17,13 +17,42 @@ public struct LiveChord: Equatable, Sendable {
         let n = ["C", "C#", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B"]
         return n[root] + (minor ? "m" : "")
     }
+
+    /// Index in a chord profile: root + (minor ? 12 : 0).
+    public var index: Int { root + (minor ? 12 : 0) }
+
+    /// A chord name like "A", "F#m", "Bbm" (sharps or flats).
+    public init?(name: String) {
+        let roots = ["C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4, "F": 5, "F#": 6, "Gb": 6,
+                     "G": 7, "G#": 8, "Ab": 8, "A": 9, "A#": 10, "Bb": 10, "B": 11]
+        let minor = name.hasSuffix("m")
+        guard let r = roots[minor ? String(name.dropLast()) : name] else { return nil }
+        self.init(root: r, minor: minor)
+    }
+
+    /// song.json "chords" (chord name → share) as a chord profile; unknown names are left out.
+    public static func profile(_ chords: [String: Float]) -> [Float] {
+        var p = [Float](repeating: 0, count: 24)
+        for (name, share) in chords { if let c = LiveChord(name: name) { p[c.index] += max(share, 0) } }
+        return p.contains { $0 > 0 } ? p : []
+    }
+
+    /// A chord profile as song.json "chords": the chords it plays, by name, shares rounded to 3 places.
+    public static func names(_ profile: [Float]) -> [String: Float] {
+        var out: [String: Float] = [:]
+        for i in 0..<min(profile.count, 24) where profile[i] > 0 {
+            out[LiveChord(root: i % 12, minor: i >= 12).name] = (profile[i] * 1000).rounded() / 1000
+        }
+        return out
+    }
 }
 
 /// When the bass is allowed to adopt a new live chord (anti-flicker grid).
 public enum ChordCommitGrid: Int, CaseIterable, Sendable {
     /// Every beat line (legacy / tight tracking).
     case everyBeat = 0
-    /// Beats 1 and 3 in 4/4 (beat 1 only in 3/4). Default — kills mid-bar chatter.
+    /// Beats 1 and 3 in 4/4 (beat 1 only in 3/4). Default — kills mid-bar chatter. A chord the song
+    /// plays a lot (song chord profile) may change on every beat.
     case strongBeats = 1
     /// Downbeat only.
     case bar = 2
@@ -59,6 +88,8 @@ final class ChordFollower: @unchecked Sendable {
     private var slowCount = 0
     /// True once pending is trusted enough to commit on the next allowed beat.
     private var pendingReady = false
+    /// Pending is a chord the song plays a lot (may commit on any beat under Strong Beats).
+    private var pendingInSong = false
     /// UI / tests: last applied chord name code (root + (minor?12:0)), or -1.
     private let published = Atomic<Int>(-1)
 
@@ -86,6 +117,7 @@ final class ChordFollower: @unchecked Sendable {
         for i in 0..<12 { pcCount[i] = 0 }
         pending = nil
         applied = nil
+        pendingInSong = false
         slowCandidate = nil
         slowCount = 0
         pendingReady = false
@@ -94,10 +126,11 @@ final class ChordFollower: @unchecked Sendable {
 
     /// Audio path: fast observations feed a slow accumulator; only the slow path updates
     /// `pending`, so brief detector flickers never reach the bass commit stage.
-    func setLiveChord(_ chord: LiveChord) {
+    func setLiveChord(_ chord: LiveChord, inSong: Bool = false) {
         // Refresh confidence while the pending chord is confirmed again.
         if let p = pending, p.root == chord.root, p.minor == chord.minor {
             pending = chord
+            pendingInSong = inSong
             pendingReady = true
             slowCandidate = chord
             slowCount = max(slowCount, slowConfirmCount)
@@ -121,6 +154,7 @@ final class ChordFollower: @unchecked Sendable {
 
         pending = chord
         pendingReady = true
+        pendingInSong = inSong
     }
 
     func noteOn(_ note: UInt8) {
@@ -153,7 +187,8 @@ final class ChordFollower: @unchecked Sendable {
             return
         }
         guard pendingReady else { return }
-        guard allowsCommit(beatInBar: beatInBar, beatsPerBar: max(1, beatsPerBar)) else { return }
+        guard allowsCommit(beatInBar: beatInBar, beatsPerBar: max(1, beatsPerBar))
+                || (commitGrid == .strongBeats && pendingInSong) else { return }
         commit(p)
     }
 
@@ -186,6 +221,7 @@ final class ChordFollower: @unchecked Sendable {
         if let chord = Self.detect(pcCount: pcCount) {
             pending = chord
             pendingReady = true
+            pendingInSong = false   // MIDI keeps the commit grid as set
             slowCandidate = chord
             slowCount = max(slowConfirmCount, 8)
         }
@@ -216,6 +252,15 @@ final class ChordFollower: @unchecked Sendable {
 
     private static func score(_ pc: [Int], root: Int, intervals: [Int]) -> Int {
         intervals.reduce(0) { $0 + (pc[(root + $1) % 12] > 0 ? 1 : 0) }
+    }
+
+    /// A written bass note moved to the applied chord. Bass lines are written chord-relative on the song
+    /// root (laneextract), so a major third there is its chord's third: over a minor chord it becomes the
+    /// minor third. A minor third over a major chord stays (often a blue note of the riff).
+    func followed(_ note: UInt8) -> UInt8 {
+        var n = Self.transpose(note, by: transpose)
+        if enabled, let c = applied, c.minor, n > 0, ((Int(note) - songRoot) % 12 + 12) % 12 == 4 { n -= 1 }
+        return n
     }
 
     static func transpose(_ note: UInt8, by semitones: Int) -> UInt8 {

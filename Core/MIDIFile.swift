@@ -346,6 +346,9 @@ public enum MIDISongImporter {
         public var bassEnabled: Bool?
         /// Pitch class the bass lines are written in, 0 = C … 11 = B (nil = E). Bass Follow transposes from it.
         public var bassRoot: Int?
+        /// The chords of the song with their share of it, e.g. ["Am": 0.4, "G": 0.3] (`SongData.chordProfile`):
+        /// Bass Follow prefers these when it detects the player's chords.
+        public var chords: [String: Float]?
         public init(intro: String? = nil, parts: [Part], transition: String? = nil, outro: String? = nil,
                     introCrash: Bool? = nil, fillCrash: Bool? = nil, kitHint: Int? = nil,
                     introBass: String? = nil, transitionBass: String? = nil, outroBass: String? = nil, bassEnabled: Bool? = nil,
@@ -468,6 +471,7 @@ public enum MIDISongImporter {
         song.outroBass = bassLine(layout.outroBass) ?? outro?.bass
         song.bassEnabled = layout.bassEnabled ?? true
         if let r = layout.bassRoot { song.bassRootPitchClass = ((r % 12) + 12) % 12 }
+        if let c = layout.chords { song.chordProfile = LiveChord.profile(c) }
         return song
     }
 }

@@ -87,6 +87,9 @@ public struct SongData: Sendable {
     public var bassEnabled = true
     /// Pitch class the written bass line is in (0 = C … 11 = B). Bass Follow transposes from this root.
     public var bassRootPitchClass: Int = 4
+    /// How much of the song (its original recording or MIDI) each chord takes, index root + (minor ? 12 : 0),
+    /// any scale; empty = unknown. Bass Follow prefers these chords when it detects the player's.
+    public var chordProfile: [Float] = []
     public var hasBass: Bool {
         bassEnabled && (introBass != nil || transitionBass != nil || outroBass != nil || parts.contains { $0.bass != nil })
     }
@@ -171,6 +174,8 @@ public final class SongStore: @unchecked Sendable {
     let bassEvents: UnsafeMutablePointer<BassEvent>
     let bassPatterns: UnsafeMutablePointer<PatternRecord>
     let partBass: UnsafeMutablePointer<Int32>       // song * maxParts + part
+    /// `SongData.chordProfile` per song: song * 24 + chord, all zero = none.
+    let songChords: UnsafeMutablePointer<Float>
     let partFillBass: UnsafeMutablePointer<Int32>   // (song * maxParts + part) * maxFills + k, -1 = none
     // Percussion layers (shaker, tambourine, clap): patterns in the drum pools, one record per layer.
     let percCapacity: Int
@@ -229,12 +234,20 @@ public final class SongStore: @unchecked Sendable {
         partBass.initialize(repeating: -1, count: songCapacity * SongStore.maxParts)
         partFillBass = .allocate(capacity: songCapacity * SongStore.maxParts * SongStore.maxFills)
         partFillBass.initialize(repeating: -1, count: songCapacity * SongStore.maxParts * SongStore.maxFills)
+        songChords = .allocate(capacity: songCapacity * 24)
+        songChords.initialize(repeating: 0, count: songCapacity * 24)
+    }
+
+    /// The chord profile of song `song` (24 values, all zero = none). Audio thread safe.
+    func chordProfile(song: Int) -> UnsafeBufferPointer<Float> {
+        UnsafeBufferPointer(start: songChords + song * 24, count: 24)
     }
 
     deinit {
         events.deallocate(); patterns.deallocate(); songs.deallocate()
         partMain.deallocate(); partFill.deallocate(); partFillCount.deallocate()
         bassEvents.deallocate(); bassPatterns.deallocate(); partBass.deallocate(); partFillBass.deallocate()
+        songChords.deallocate()
         percTracks.deallocate(); percPartMain.deallocate(); percPartFill.deallocate(); percPartFillCount.deallocate()
         songPerc.deinitialize(count: songCapacity * PercussionInstrument.count)
         songPerc.deallocate()
@@ -441,6 +454,7 @@ public final class SongStore: @unchecked Sendable {
                 partFillBass[(base + i) * SongStore.maxFills + k] = addBass(b)
             }
         }
+        for i in 0..<24 { songChords[songCount * 24 + i] = i < song.chordProfile.count ? max(song.chordProfile[i], 0) : 0 }
         songs[songCount] = rec
         songCount += 1
         publishedPatterns.store(patternCount, ordering: .releasing)

@@ -389,13 +389,15 @@ public final class SongLibrary: @unchecked Sendable {
             parts.append(.init(main: main, fills: fills, bass: bassFile("\(groove) Bass.mid", store.bass(song: song.id, part: i)),
                                fillBass: fillBass.contains { !$0.isEmpty } ? fillBass : nil))
         }
-        let layout = MIDISongImporter.SongLayout(
+        var layout = MIDISongImporter.SongLayout(
             intro: intro, parts: parts, transition: file("Transition.mid", pattern(rec.transition)),
             outro: file("Ending.mid", pattern(rec.outro)),
             introCrash: rec.introCrash, fillCrash: rec.fillCrash, kitHint: song.kitHint,
             introBass: bassFile("Intro Bass.mid", rec.introBass), transitionBass: bassFile("Transition Bass.mid", rec.transitionBass),
             outroBass: bassFile("Ending Bass.mid", rec.outroBass), bassEnabled: rec.bassEnabled ? nil : false,
             bassRoot: rec.bassRoot == 4 ? nil : Int(rec.bassRoot))
+        let chords = LiveChord.names(Array(store.chordProfile(song: song.id)))
+        if !chords.isEmpty { layout.chords = chords }
         return ImportRecord(name: song.name, files: files, key: song.key, genre: song.genre, layout: layout)
     }
 
@@ -456,6 +458,9 @@ public final class SongLibrary: @unchecked Sendable {
             data.bassEnabled = e.bassEnabled
             data.bassRootPitchClass = Int(e.bassRoot)
         }
+        // The player plays the song, not the beat: Bass Follow listens for the song's chords.
+        let chords = Array(store.chordProfile(song: song.id))
+        data.chordProfile = chords.contains { $0 > 0 } ? chords : []
         data.name = song.name
         data.isUser = true                   // not an import: hidden from the lists
         data.key = key
@@ -526,6 +531,8 @@ public final class SongLibrary: @unchecked Sendable {
         s.transitionBass = store.bassPattern(rec.transitionBass)
         s.outroBass = store.bassPattern(rec.outroBass)
         s.bassEnabled = rec.bassEnabled
+        let profile = Array(store.chordProfile(song: info.id))
+        if profile.contains(where: { $0 > 0 }) { s.chordProfile = profile }
         return s
     }
 

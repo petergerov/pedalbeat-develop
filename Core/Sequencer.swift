@@ -192,6 +192,7 @@ final class Sequencer {
         part = 0
         for i in 0..<SongStore.maxParts { nextFill[i] = 0 }
         bassFollow.setSongRoot(Int(rec.bassRoot))
+        bassFollow.setSongChords(store.chordProfile(song: index))
         return true
     }
 

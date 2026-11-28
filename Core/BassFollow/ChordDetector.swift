@@ -130,6 +130,19 @@ final class ChordDetector: @unchecked Sendable {
     /// When nil, mode is inferred from the first stable chords; otherwise forced.
     var preferMinorKey: Bool? = nil
 
+    // Song chord prior: how much of the song (its original MIDI) each chord takes, index root +
+    // (minor ? 12 : 0), max 1; all zero = unknown song, no prior. The player may be in another key
+    // (capo): `songShift` is learned from the locked chords, and the prior only gets its full
+    // strength while the locked chords fit the song (`songFit`).
+    private var songChords = [Float](repeating: 0, count: 24)
+    private var hasSongChords = false
+    /// Semitones the player is above the song's written key.
+    private(set) var songShift = 0
+    private var shiftScore = [Float](repeating: 0, count: 12)
+    private var songLocks = 0
+    /// How well the recent locked chords fit the song (0…1, smoothed).
+    private(set) var songFit: Float = 0.5
+
     private var locked: LiveChord?
     private var candidate: LiveChord?
     private var candidateCount = 0
@@ -233,6 +246,66 @@ final class ChordDetector: @unchecked Sendable {
         ensemble.reset()
         solitito.reset()
         fifo.update(repeating: 0, count: Self.windowSize)
+    }
+
+    /// The song's chord profile (24 values, any scale; all zero = none). Allocation-free, so the
+    /// sequencer can call it on the audio thread when a song loads. Starts a new key-shift estimate.
+    func setSongChords(_ profile: UnsafeBufferPointer<Float>) {
+        var peak: Float = 0
+        for i in 0..<min(24, profile.count) { peak = max(peak, profile[i]) }
+        hasSongChords = peak > 1e-6
+        for i in 0..<24 { songChords[i] = hasSongChords && i < profile.count ? max(profile[i], 0) / peak : 0 }
+        if hasSongChords {
+            // The song's mode decides the key prior (its tonic is `songRoot`).
+            let t = ((songRoot % 12) + 12) % 12
+            preferMinorKey = songChords[t + 12] > songChords[t]
+            keyTonic = -1
+        }
+        songShift = 0
+        songLocks = 0
+        songFit = 0.5
+        for k in 0..<12 { shiftScore[k] = 0 }
+    }
+
+    /// Share of the song that `c` takes (0…1 relative to its most played chord), at the learned
+    /// key shift; nil without a song profile.
+    func songWeight(_ c: LiveChord) -> Float? {
+        guard hasSongChords else { return nil }
+        return songChords[(((c.root - songShift) % 12) + 12) % 12 + (c.minor ? 12 : 0)]
+    }
+
+    /// Prior factor: chords of the song up to ×1.4, chords it never plays ×0.62, at a strength that
+    /// follows how well the playing fits the song.
+    private func songBoost(_ c: LiveChord) -> Float {
+        guard let w = songWeight(c) else { return 1 }
+        let full = 0.62 + 0.78 * w.squareRoot()
+        let strength = min(max(songFit * 1.5, 0.35), 1)
+        return 1 + strength * (full - 1)
+    }
+
+    /// A score weighted by a prior factor: model scores can be negative (logits), and a factor above 1
+    /// must still make a score better, not more negative.
+    private static func weighted(_ score: Float, by factor: Float) -> Float {
+        score >= 0 ? score * factor : score / factor
+    }
+
+    /// After a lock: learn the key shift (the shift under which the recent chords are most the song's).
+    func learnSongShift(_ c: LiveChord) {
+        guard hasSongChords else { return }
+        songLocks += 1
+        for k in 0..<12 {
+            let w = songChords[(((c.root - k) % 12) + 12) % 12 + (c.minor ? 12 : 0)]
+            shiftScore[k] = shiftScore[k] * 0.8 + logf(0.03 + w)
+        }
+        if songLocks >= 4 {
+            var best = songShift
+            for k in 0..<12 where shiftScore[k] > shiftScore[best] { best = k }
+            if best != songShift && shiftScore[best] > shiftScore[songShift] + 1.5 {
+                songShift = best
+                keyTonic = -1   // the key prior moves along
+            }
+        }
+        songFit = songFit * 0.7 + 0.3 * min(1, (songWeight(c) ?? 0) * 2)
     }
 
     /// Tests: drop trained ML and use triad templates only.
@@ -491,6 +564,7 @@ final class ChordDetector: @unchecked Sendable {
             s.score *= progressionBoost(s.chord, nearOnset: nearOnset)
             s.score *= bassRootBoost(s.chord)
             s.score *= negativeEvidence(s.chord)
+            s.score = Self.weighted(s.score, by: songBoost(s.chord))
             if locked.map({ $0.root == s.chord.root && $0.minor == s.chord.minor }) == true {
                 s.score *= nearOnset ? 1.05 : 1.12
             }
@@ -512,7 +586,8 @@ final class ChordDetector: @unchecked Sendable {
 
     private func ensureKey() {
         if keyTonic < 0 {
-            keyTonic = ((songRoot % 12) + 12) % 12
+            // The written key, moved by the key shift learned from the song's chords.
+            keyTonic = (((songRoot + songShift) % 12) + 12) % 12
             if let forced = preferMinorKey {
                 keyMinor = forced
             } else {
@@ -679,11 +754,11 @@ final class ChordDetector: @unchecked Sendable {
 
         let margin = Self.switchMargin + (nearOnset ? 0 : Self.sustainSwitchExtra)
         // Like-for-like with `applyPriors`: include progression stay boost (not a weaker ad-hoc factor).
-        let lockedScore = modelScore(locked!)
+        let lockedScore = Self.weighted(modelScore(locked!)
             * diatonicBoost(locked!)
             * progressionBoost(locked!, nearOnset: nearOnset)
             * bassRootBoost(locked!)
-            * negativeEvidence(locked!)
+            * negativeEvidence(locked!), by: songBoost(locked!))
         guard incoming.score >= lockedScore * (1 + margin),
               incoming.chord.confidence >= minConfidence else {
             candidate = nil
@@ -704,6 +779,10 @@ final class ChordDetector: @unchecked Sendable {
             candidate = incoming.chord
             candidateCount = 1
         }
+        // A chord the song plays a lot may switch a hop sooner; one it never plays waits a hop longer.
+        if let w = songWeight(incoming.chord) {
+            if w >= 0.25 { needHops = max(1, needHops - 1) } else if w < 0.02 { needHops += 1 }
+        }
         if candidateCount >= needHops { lock(incoming.chord) }
         return locked
     }
@@ -714,6 +793,7 @@ final class ChordDetector: @unchecked Sendable {
         candidateCount = 0
         history.append(chord.root + (chord.minor ? 12 : 0))
         if history.count > 8 { history.removeFirst() }
+        learnSongShift(chord)
         publish(chord)
     }
 

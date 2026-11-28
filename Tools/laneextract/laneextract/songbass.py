@@ -10,7 +10,8 @@ signature, and the bass loop is the medoid / consensus of the bass in those bars
 <midi_songs_dir> holds drum_songs/, shaker_songs/, tambourine_songs/, clap_songs/, midis/ and
 midi_songs_available.json. Writes into <out_dir>:
   drum_songs/…        the drum files unchanged, plus "Groove A Bass.mid" …, "Groove A Fill 1 Bass.mid" …, "Intro Bass.mid", "Ending Bass.mid",
-                      and song.json with the bass in its layout and "bassRoot" (pitch class of the song's key)
+                      and song.json with the bass in its layout, "bassRoot" (pitch class of the song's key) and
+                      "chords" (each chord of the source with its share of the song, for Bass Follow)
   shaker_songs/ tambourine_songs/ clap_songs/   copied unchanged
   songpack_report.md, songpack.json
 """
@@ -31,6 +32,31 @@ GRID = PPQ // 4                     # extract_drums.py compares bars on 16ths
 PERC_FOLDERS = ("shaker_songs", "tambourine_songs", "clap_songs")
 MIN_BASS_SHARE = 0.4                # a groove gets bass if the bass plays in this share of its bars
 FILL_SAME = 0.7                     # a fill's bass with this share of the groove's notes is no fill of its own
+MIN_CHORD_SHARE = 0.01              # chords under this share of the song are left out of "chords"
+MINOR_QUALITIES = {"min", "m7", "dim"}
+
+
+def chord_shares(h) -> dict[str, float]:
+    """Each major / minor chord of the song with its share of the song's chord time (Bass Follow's prior).
+    Sevenths and sus chords count as their triad's quality, power chords half major, half minor;
+    uncertain chords count less."""
+    acc: dict[str, float] = {}
+    for c in h.chords:
+        if c.root is None or c.end <= c.start:
+            continue
+        w = (c.end - c.start) * (0.4 + 0.6 * max(0.0, min(1.0, c.conf)))
+        name = harmony.PC[c.root]
+        if c.quality == "5":
+            acc[name] = acc.get(name, 0.0) + w / 2
+            acc[name + "m"] = acc.get(name + "m", 0.0) + w / 2
+        else:
+            key = name + ("m" if c.quality in MINOR_QUALITIES else "")
+            acc[key] = acc.get(key, 0.0) + w
+    total = sum(acc.values())
+    if total <= 0:
+        return {}
+    shares = {k: v / total for k, v in acc.items() if v / total >= MIN_CHORD_SHARE}
+    return {k: round(v, 3) for k, v in sorted(shares.items(), key=lambda kv: -kv[1])}
 
 
 def _clean(s: str) -> str:
@@ -148,6 +174,9 @@ def build_song(src_path: str, song_dir: str, out_dir: str) -> SongResult:
     events = parts._bass_events(h)
     tonic = h.key.tonic if h.key else 4
     res.key = h.key.name if h.key else None
+    chords = chord_shares(h)
+    if chords:
+        lay["chords"] = chords
 
     def tm_bar(i: int) -> int | None:
         """laneextract bar of extract_drums.py bar `i`, if both grids agree there."""

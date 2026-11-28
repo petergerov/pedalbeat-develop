@@ -1556,6 +1556,74 @@ do {
     print("Audio Chord Follow: A major chroma + bass transpose checked")
 } catch { check(false, "audio follow tests threw \(error)") }
 
+// 11b. Song chord prior: the song's chords (from its original MIDI) help Bass Follow; a player in
+//      another key is followed (the key shift is learned); chords of the song change on any beat.
+do {
+    let sr = 48000.0
+    let det = ChordDetector()
+    det.setSampleRate(sr)
+    det.useTemplateClassifierOnly()
+    det.gate = 0.001
+    det.minConfidence = 0.35
+    det.songRoot = 9
+    check(det.songWeight(LiveChord(root: 9, minor: true)) == nil, "no song profile: no prior")
+    // The song: Am G F E (A minor). The player: two semitones up (Bm A G F#).
+    let song = LiveChord.profile(["Am": 0.4, "G": 0.2, "F": 0.2, "E": 0.2])
+    song.withUnsafeBufferPointer { det.setSongChords($0) }
+    check(det.songWeight(LiveChord(root: 9, minor: true)) == 1 && det.songWeight(LiveChord(root: 7)) == 0.5
+          && det.songWeight(LiveChord(root: 2)) == 0, "song weights relative to its most played chord")
+    // The chords the detector locks teach it the shift.
+    for _ in 0..<2 { for name in ["Bm", "A", "G", "F#"] { det.learnSongShift(LiveChord(name: name)!) } }
+    check(det.songShift == 2, "a player two semitones up: shift learned (\(det.songShift))")
+    check(det.songWeight(LiveChord(name: "Bm")!) == 1 && det.songWeight(LiveChord(name: "Am")!) == 0,
+          "the prior follows the player's key")
+
+    // Follower: a chord the song plays a lot changes on any beat under Strong Beats, others wait.
+    let f = ChordFollower()
+    f.enabled = true
+    f.commitGrid = .strongBeats
+    f.slowConfirmCount = 1
+    f.setLiveChord(LiveChord(root: 9, minor: true, confidence: 0.9))
+    f.applyQuantized(force: true)
+    f.setLiveChord(LiveChord(root: 7, confidence: 0.9), inSong: false)
+    f.applyQuantized(beatInBar: 1, beatsPerBar: 4)
+    check(f.appliedChord?.root == 9, "out of the song: waits for a strong beat")
+    f.setLiveChord(LiveChord(root: 7, confidence: 0.9), inSong: true)
+    f.applyQuantized(beatInBar: 1, beatsPerBar: 4)
+    check(f.appliedChord?.root == 7, "a chord of the song: changes on beat 2")
+    // Over the minor chord the written major third (E line: G#) becomes the minor third; root and
+    // fifth just move; a written minor third (G) stays.
+    f.songRoot = 4
+    f.setLiveChord(LiveChord(root: 9, minor: true, confidence: 0.9), inSong: true)
+    f.applyQuantized(beatInBar: 0, beatsPerBar: 4)
+    check(f.appliedChord == LiveChord(root: 9, minor: true, confidence: 0.9)
+          && [40, 44, 47, 43].map { f.followed(UInt8($0)) } == [45, 48, 52, 48],
+          "Am: E G# B G → A C E C: \([40, 44, 47, 43].map { f.followed(UInt8($0)) })")
+    f.setLiveChord(LiveChord(root: 9, confidence: 0.9), inSong: true)
+    f.applyQuantized(beatInBar: 0, beatsPerBar: 4)
+    check([40, 44, 47].map { f.followed(UInt8($0)) } == [45, 49, 52], "A: E G# B → A C# E")
+    f.commitGrid = .bar
+    f.setLiveChord(LiveChord(root: 5, confidence: 0.9), inSong: true)
+    f.applyQuantized(beatInBar: 2, beatsPerBar: 4)
+    check(f.appliedChord?.root == 9, "Bar keeps its grid, even for the song's chords")
+
+    // The sequencer hands the playing song's profile to Bass Follow.
+    var sd = SongData(name: "Prior", genre: "Bass Test", tempo: 120, timeSignature: "4/4", barTicks: 1920, beatTicks: 480,
+                      intro: nil, parts: [PartData(main: PatternData(events: [SeqEvent(tick: 0, drum: UInt8(Drum.kick.rawValue), velocity: 80)], length: 1920),
+                                                   fill: nil)], transition: nil, outro: nil, bassRootPitchClass: 11)
+    sd.chordProfile = LiveChord.profile(["Bm": 1, "G": 0.5])
+    let pid = try store.add(sd)
+    engine.send(.stop)
+    engine.setParameter(.song, Float(pid))
+    engine.beginRender(); engine.render(frames: frames, left: L, right: R, hostTempo: nil, hostPlaying: nil)
+    engine.send(.start)
+    for _ in 0..<4 { engine.beginRender(); engine.render(frames: frames, left: L, right: R, hostTempo: nil, hostPlaying: nil) }
+    engine.send(.stop)
+    check(engine.bassFollow.detector.songWeight(LiveChord(name: "G")!) == 0.5 && engine.bassFollow.detector.songRoot == 11,
+          "the playing song's chords and key reach Bass Follow: G \(String(describing: engine.bassFollow.detector.songWeight(LiveChord(name: "G")!))) root \(engine.bassFollow.detector.songRoot) shift \(engine.bassFollow.detector.songShift)")
+    print("Song chord prior: weights, key shift, follower grid, sequencer hand-off checked")
+} catch { check(false, "song chord prior tests threw \(error)") }
+
 // 12. Percussion layers: a song's shaker / tambourine / clap play along with its drums, follow its
 //     sections, have their own switches and level, and import from "shaker_songs/<Artist>/<Title>/"
 //     folders without becoming beats of their own.
@@ -1902,6 +1970,30 @@ do {
     check(rr.songs.count == 1 && rr.songs.first.map { engine2.store.songs[$0.id].bassRoot == 2 && $0.hasBass } == true,
           "bassRoot from song.json reaches the engine")
 
+    // "chords" in song.json: the song's chord profile (Bass Follow's prior), through import, export and the pack.
+    check(LiveChord(name: "F#m") == LiveChord(root: 6, minor: true) && LiveChord(name: "Bb") == LiveChord(root: 10)
+          && LiveChord(name: "H") == nil && LiveChord.names(LiveChord.profile(["Am": 0.5, "G": 0.25])) == ["Am": 0.5, "G": 0.25],
+          "chord names and profiles convert both ways")
+    var chorded = rooted
+    chorded.chords = ["Am": 0.5, "G": 0.3, "F": 0.2, "Xyz": 1]
+    let chordedJSON = try JSONEncoder().encode(SongLibrary.SongFile(name: "Chorded", genre: "Root Test", layout: chorded))
+    let rc = lib.importFolder([.init(path: ["Root Test", "Chorded", "Groove A.mid"], data: smf([(0, 36), (96, 38), (144, 36), (288, 38)])),
+                               .init(path: ["Root Test", "Chorded", "Groove A Bass.mid"], data: bassOnly),
+                               .init(path: ["Root Test", "Chorded", SongLibrary.songFileName], data: chordedJSON)])
+    if let cs = rc.songs.first {
+        let prof = Array(engine2.store.chordProfile(song: cs.id))
+        check(prof[9 + 12] == 0.5 && prof[7] == 0.3 && prof[5] == 0.2 && abs(prof.reduce(0, +) - 1) < 1e-6,
+              "chords from song.json reach the engine (unknown names left out): \(LiveChord.names(prof))")
+        check(lib.beginEditing(cs)?.layout?.chords?["Am"] == 0.5, "an edited song keeps its chords")
+    } else { check(false, "song with chords imports") }
+    var withChords = SongData(name: "Chords", genre: "Pack Test", tempo: 100, timeSignature: "4/4", barTicks: 1920, beatTicks: 480,
+                              intro: nil, parts: [PartData(main: PatternData(events: [], length: 1920), fill: nil)], transition: nil, outro: nil)
+    withChords.chordProfile = LiveChord.profile(["Bm": 0.6, "F#": 0.3, "A": 0.1])
+    let packed = try ContentPack.decode(ContentPack.encode(.init(songs: [withChords], percussion: [])))
+    let bp = packed.songs.first?.chordProfile ?? []
+    check(bp.count == 24 && bp[11 + 12] == 1 && abs(bp[6] - 0.5) < 0.01 && abs(bp[9] - 1.0 / 6) < 0.01 && bp.filter { $0 > 0 }.count == 3,
+          "the pack keeps the chord profile (relative to its most played chord): \(bp)")
+
     // Songs tab tempo: the index BPM, or the drums' own when they were written at double or half of it.
     check(SongIndex.playTempo(indexBPM: 198, drumsTempo: 99, ownDrums: true) == 99
           && SongIndex.playTempo(indexBPM: 121, drumsTempo: 61, ownDrums: true) == 61
@@ -1975,7 +2067,8 @@ do {
         entries(["BBS", "Ballad", "Ballad 2"], "\(BBSImport.packName) › Ballad", "Ballad 2", bb,
                 ["Part 1.mid": groove, "Part 1 Fill 1.mid": fill, "Part 2.mid": offbeatKicks, "Part 2 Fill 1.mid": fill, "Part 2 Fill 2.mid": fill])
         + entries(["drum_songs", "Eagles", "Hotel California"], "drum songs › Eagles", "Hotel California",
-                  Layout(parts: [.init(main: "Groove A.mid", bass: "Groove A Bass.mid")]), ["Groove A.mid": groove, "Groove A Bass.mid": bassFile])
+                  { var l = Layout(parts: [.init(main: "Groove A.mid", bass: "Groove A Bass.mid")]); l.chords = ["Bm": 0.5, "F#": 0.5]; return l }(),
+                  ["Groove A.mid": groove, "Groove A Bass.mid": bassFile])
         + entries(["shaker_songs", "Eagles", "Hotel California"], "shaker songs › Eagles", "Hotel California",
                   Layout(parts: [.init(main: "Groove A.mid")]), ["Groove A.mid": smf((0..<8).map { ($0 * 48, UInt8(70)) })])
         + entries(["drum_songs", "Odd", "Five"], "drum songs › Odd", "Five",
@@ -2005,6 +2098,8 @@ do {
             check(BassGenerator.style(forBeatGenre: "BBS › Reggae") == .reggae && BassGenerator.style(forBeatGenre: "BBS › Ballad-mini") == .rock,
                   "beat genre picks the generator style")
             check(st.percussion(song: l.id, instrument: PercussionInstrument.shaker.rawValue) >= 0, "the song's shaker plays on the beat")
+            check(Array(st.chordProfile(song: l.id)) == Array(st.chordProfile(song: song.id)) && st.chordProfile(song: l.id)[11 + 12] > 0,
+                  "the beat listens for the song's chords (Bass Follow)")
             check(st.partMain[l.id * SongStore.maxParts] == st.partMain[beat.id * SongStore.maxParts]
                   || st.patterns[Int(st.partMain[l.id * SongStore.maxParts])].count == st.patterns[Int(st.partMain[beat.id * SongStore.maxParts])].count,
                   "same drums as the beat")

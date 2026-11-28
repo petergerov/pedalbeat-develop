@@ -264,6 +264,6 @@ private struct ChordCommitGridMenu: View {
         }
         .menuStyle(.button)
         .buttonStyle(.plain)
-        .help("When Bass Follow may change the bass chord: every beat, strong beats (1+3), or only on the bar")
+        .help("When Bass Follow may change the bass chord: every beat, strong beats (1+3; a chord the song plays a lot also on 2 and 4), or only on the bar")
     }
 }
