@@ -3,7 +3,7 @@
 /// Layer / RR counts are pushed high so the kits feel as dense as the decoded pedal kits.
 enum Recipes {
     static let all: [KitRecipe] = [
-        jazz, brushes, studio, bigRoom, cajon, cajon2, cajonFlamenco, worldPercussion, bobobo,
+        jazz, brushes, studio, bigRoom, cajon, cajon2, cajon3, cajonFlamenco, worldPercussion, bobobo,
         body, bodyStomp, bodyHands, bodyChest, bodyStereo,
     ]
 
@@ -142,39 +142,85 @@ enum Recipes {
                   rr: 5, sec: 8, db: 5),
         ])
 
-    // Cajón 2: same Gogodze kit, but kick replaced by Swirly’s deeper cajón bass (13 vel × 4 RR).
+    // Cajón 2: Swirly bass for a bit more depth, but voiced round like Cajón 1 —
+    // same Gogodze face/sides/slap family, sweet rim, crash = louder slap.
     static let cajon2 = KitRecipe(
         id: "pedalbeat.cajon2", name: "Cajón 2", category: "percussion",
         author: "Karoryfer Samples (Gogodze Phu + Swirly cajón kick)",
         license: "CC0-1.0",
         source: "https://github.com/sfzinstruments/karoryfer.gogodze-phu-vol-i",
-        notes: "Additional cajón kit: Swirly’s deeply sampled cajón bass kick + Gogodze face/sides/snare-off/finger rolls. Punchier low end than Cajón 1.",
+        notes: "Rounder Cajón 2: warmer Swirly bass (pulled back), Gogodze face/sides/slap like Cajón 1, "
+            + "sweet side taps, crash = same slap family. Deeper pocket without losing the one-box feel.",
         dir: "karoryfer.gogodze-phu-vol-i", program: "Programs/Cajon.sfz", outRate: 44100,
-        cc: [7: 110, 70: 100, 71: 100, 72: 63, 11: 100],
+        // Slightly more rear mic (70) than front (71) → rounder, less clicky box.
+        cc: [7: 108, 70: 110, 71: 88, 72: 58, 11: 100],
         fallbackSynthKit: 0, suggestFor: [],
-        targetPeak: 0.93,
+        targetPeak: 0.90,
         drums: [
-            D(.kick, 35, layers: 10, rr: 4, sec: 1.5, db: 4,
-              cc: [45: 100, 46: 75, 47: 63],
+            // Swirly kick softened (−2 dB vs old) so it sits under Gogodze faces.
+            D(.kick, 35, layers: 10, rr: 4, sec: 1.55, db: 1,
+              cc: [45: 92, 46: 70, 47: 55],
               program: "../karoryfer.swirly-drums/Programs/Full_kit.sfz"),
-            D(.snare, 52, layers: 4, rr: 5, sec: 1.3, db: 3),
-            D(.clap, 51, layers: 4, rr: 5, sec: 1.1, db: 2),
+            D(.snare, 52, layers: 4, rr: 5, sec: 1.3, db: 2),
+            D(.clap, 51, layers: 4, rr: 5, sec: 1.1, db: 1),
             D(.rim, 54, layers: 1, rr: 6, sec: 0.9, db: 14),
             D(.hatClosed, 53, layers: 3, rr: 5, sec: 0.8, db: 5),
             D(.hatPedal, 53, layers: 2, rr: 4, sec: 0.7, db: 2),
-            D(.hatOpen, 49, layers: 4, rr: 5, sec: 1.3, db: 1),
-            D(.tomHigh, 56, layers: 4, rr: 5, sec: 1.35, db: 4),
-            D(.tomMid, 55, layers: 4, rr: 5, sec: 1.35, db: 4),
-            D(.tomLow, 50, layers: 4, rr: 5, sec: 1.4, db: 3),
-            D(.crash, 52, layers: 3, rr: 4, sec: 1.6, db: 7),
-            D(.ride, 48, layers: 3, rr: 4, sec: 1.5, db: 2),
-            D(.rideBell, 51, layers: 3, rr: 4, sec: 1.3, db: 5),
-            // Finger rolls: light / medium / hard via the library's roll volume (CC11), as it does
-            // itself. Velocity doesn't change the rolls; the other roll positions (CC1) are far quieter.
+            D(.hatOpen, 49, layers: 4, rr: 5, sec: 1.3, db: 0),
+            D(.tomHigh, 56, layers: 4, rr: 5, sec: 1.35, db: 3),
+            D(.tomMid, 55, layers: 4, rr: 5, sec: 1.35, db: 3),
+            D(.tomLow, 50, layers: 4, rr: 5, sec: 1.4, db: 2),
+            // Same slap as snare (Cajón 1 sweet spot) — not a foreign crash.
+            D(.crash, 52, layers: 3, rr: 4, sec: 1.6, db: 6),
+            D(.ride, 50, layers: 3, rr: 4, sec: 1.5, db: 0),
+            D(.rideBell, 51, layers: 3, rr: 4, sec: 1.3, db: 4),
             Sweep([SweepLayer(note: 57, hiVelocity: 80, cc: [11: 64]),
                    SweepLayer(note: 57, hiVelocity: 108, cc: [11: 90]),
                    SweepLayer(note: 57, hiVelocity: 127, cc: [11: 127])],
-                  rr: 5, sec: 8, db: 5),
+                  rr: 5, sec: 8, db: 4),
+        ])
+
+    // Cajón 3: ghost-dense Gogodze + soft Swirly bass, one-box mapping like Cajón 1.
+    // FreePats only for PedalBeat percussion layers (shaker/tamb/maracas), tucked back.
+    static let cajon3 = KitRecipe(
+        id: "pedalbeat.cajon3", name: "Cajón 3", category: "percussion",
+        author: "Karoryfer (Gogodze Phu + Swirly) + FreePats hand perc",
+        license: "CC0-1.0",
+        source: "https://github.com/sfzinstruments/karoryfer.gogodze-phu-vol-i",
+        notes: "Round Cajón 3: soft Swirly bass, full Gogodze ghost→slap dynamics, Cajón-1 voice map "
+            + "(sweet rim, crash = slap), finger rolls; FreePats shaker/tamb/maracas only for layers.",
+        dir: "karoryfer.gogodze-phu-vol-i", program: "Programs/Cajon.sfz", outRate: 44100,
+        cc: [7: 108, 70: 110, 71: 88, 72: 58, 11: 100],
+        fallbackSynthKit: 0, suggestFor: [],
+        targetPeak: 0.90,
+        drums: [
+            D(.kick, 35, layers: 13, rr: 4, sec: 1.6, db: 1,
+              cc: [45: 92, 46: 70, 47: 55],
+              program: "../karoryfer.swirly-drums/Programs/Full_kit.sfz"),
+            // Soft ≤31 = ghosts; keep all 4 dynamics.
+            D(.snare, 52, layers: 4, rr: 5, sec: 1.3, db: 2),
+            D(.clap, 51, layers: 4, rr: 5, sec: 1.1, db: 1),
+            D(.rim, 54, layers: 1, rr: 6, sec: 0.9, db: 14),
+            D(.hatClosed, 53, layers: 3, rr: 5, sec: 0.8, db: 5),
+            D(.hatPedal, 53, layers: 2, rr: 4, sec: 0.7, db: 2),
+            D(.hatOpen, 49, layers: 4, rr: 5, sec: 1.3, db: 0),
+            D(.tomHigh, 56, layers: 4, rr: 5, sec: 1.35, db: 3),
+            D(.tomMid, 55, layers: 4, rr: 5, sec: 1.35, db: 3),
+            D(.tomLow, 50, layers: 4, rr: 5, sec: 1.4, db: 2),
+            D(.crash, 52, layers: 3, rr: 4, sec: 1.6, db: 6),
+            D(.ride, 50, layers: 4, rr: 5, sec: 1.5, db: 0),
+            D(.rideBell, 51, layers: 3, rr: 4, sec: 1.3, db: 4),
+            // Hand perc only — quiet so they don't break the box.
+            D(.shaker, 54, layers: 1, rr: 8, sec: 0.5, db: -2,
+              program: "../world-percussion/WorldPercussion 20200905.sfz"),
+            D(.tambourine, 57, layers: 1, rr: 8, sec: 0.75, db: -1,
+              program: "../world-percussion/WorldPercussion 20200905.sfz"),
+            D(.maracas, 67, layers: 1, rr: 8, sec: 0.5, db: -2,
+              program: "../world-percussion/WorldPercussion 20200905.sfz"),
+            Sweep([SweepLayer(note: 57, hiVelocity: 80, cc: [11: 58]),
+                   SweepLayer(note: 57, hiVelocity: 108, cc: [11: 85]),
+                   SweepLayer(note: 57, hiVelocity: 127, cc: [11: 120])],
+                  rr: 5, sec: 8, db: 4),
         ])
 
     // FreePats flamenco cajón (CC0): lots of round-robins, no velocity layers — different character.

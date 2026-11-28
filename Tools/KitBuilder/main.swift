@@ -312,6 +312,7 @@ func bbInstrumentName(_ drum: Drum) -> String {
     case .shaker: "Shaker"
     case .tambourine: "Tambourine"
     case .brushSweep: "Sweeps_Long"
+    case .maracas: "Maracas"
     }
 }
 
@@ -335,6 +336,7 @@ func bbMidi(_ drum: Drum) -> Int {
     case .shaker: 82    // PedalBeat gmNote is 70
     case .tambourine: 54
     case .brushSweep: 41  // Sweeps Long; PedalBeat plays as note 88
+    case .maracas: 70
     }
 }
 

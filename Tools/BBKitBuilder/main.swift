@@ -23,6 +23,13 @@ struct BBKit: Decodable {
     var file: String?
     var volume: Int
     var instruments: [BBInstrument]
+    /// Optional PedalBeat kit id (e.g. "pedalbeat.cajon3"). Defaults to pedalbeat.bb.<slug>.
+    var id: String?
+    var author: String?
+    var license: String?
+    var source: String?
+    var notes: String?
+    var category: String?
 }
 
 struct BBInstrument: Decodable {
@@ -68,8 +75,9 @@ let preferredNotes: [Drum: [Int]] = [
     .tomMid: [45, 47],    // Tom 3
     .tomLow: [43, 41],    // Tom 4 (41 is also sweeps-long on Brushes — handled by name)
     .cowbell: [56],
-    .shaker: [82, 70, 69],
+    .shaker: [82, 69],
     .tambourine: [54],
+    .maracas: [70],
 ]
 
 func isSweepName(_ name: String) -> Bool {
@@ -236,7 +244,7 @@ func prepareHit(L inL: [Float], R inR: [Float], sweep: Bool, outRate: Double, sr
 
 struct Built { var manifest: KitManifest; var audio: [Int16] }
 
-func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR: Int = 4) throws -> Built {
+func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR: Int = 6) throws -> Built {
     let jsonURL = kitDir.appendingPathComponent("kit.json")
     let kit = try JSONDecoder().decode(BBKit.self, from: Data(contentsOf: jsonURL))
     let picked = pickInstruments(kit)
@@ -332,14 +340,16 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
     }
 
     let name = kit.name
-    let id = "pedalbeat.bb.\(slug(name))"
+    let id = kit.id ?? "pedalbeat.bb.\(slug(name))"
     let hint = kitHint(for: name)
     let m = KitManifest(
-        id: id, name: "BB \(name)", category: category(for: name),
-        author: "Original kit maker",
-        license: "Proprietary — for personal use with your own content",
-        source: kit.file.map { "Decoded drumset \($0)" } ?? "Decoded drumset",
-        notes: "Converted from decoded kit “\(name)”. Import only if you own the original content.",
+        id: id,
+        name: kit.id != nil ? name : "BB \(name)",
+        category: kit.category ?? category(for: name),
+        author: kit.author ?? "Original kit maker",
+        license: kit.license ?? "Proprietary — for personal use with your own content",
+        source: kit.source ?? kit.file.map { "Decoded drumset \($0)" } ?? "Decoded drumset",
+        notes: kit.notes ?? "Converted from decoded kit “\(name)”. Import only if you own the original content.",
         sampleRate: outRate, frames: audio.count / 2,
         fallbackSynthKit: hint, suggestFor: [hint],
         drums: drums)
