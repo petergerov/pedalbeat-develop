@@ -67,8 +67,20 @@ public enum ParamAddress: UInt64, CaseIterable, Sendable {
          percMaracas, percAuto,
          /// Bass Follow: when pending chords may become the sounding harmony (strong beats default).
          chordCommitGrid,
-         /// Sample kit for percussion layers (`PercLayerKit`: Drum Kit / FreePats / World / Body).
-         percKit
+         /// Sample kit for percussion layers (`PercLayerKit`: Drum Kit / FreePats / World).
+         percKit,
+         /// Shaker stack (`ShakerStack`): pocket (ms), feel (`ShakerFeel`), stereo width, and per lane
+         /// its sound (`ShakerSource`), level and pan. Lane parameters stay in this order.
+         shakerPocket, shakerFeel, shakerWidth,
+         shakerLane1Source, shakerLane1Level, shakerLane1Pan,
+         shakerLane2Source, shakerLane2Level, shakerLane2Pan,
+         shakerLane3Source, shakerLane3Level, shakerLane3Pan
+}
+
+/// A sample kit handed to the audio thread: the published kit and the one it has picked up.
+final class KitSlot: @unchecked Sendable {
+    let published = Atomic<Int>(0)
+    let inUse = Atomic<Int>(0)
 }
 
 /// One MIDI message for the AU MIDI output (drum notes or realtime clock).
@@ -146,6 +158,14 @@ public final class DrumEngine: @unchecked Sendable {
     public let percAuto = AtomicInt(0)
     /// Percussion-layer sample kit (`PercLayerKit` raw value).
     public let percKit = AtomicInt(0)
+    /// Shaker stack (`ShakerStack`).
+    public let shakerPocket = AtomicFloat(0)
+    public let shakerFeel = AtomicInt(0)
+    public let shakerWidth = AtomicFloat(1)
+    public let shakerLaneSource = ShakerStack.defaultSources.map { AtomicInt($0.rawValue) }
+    public let shakerLaneLevel = ShakerStack.defaultLevels.map { AtomicFloat($0) }
+    public let shakerLanePan = ShakerStack.defaultPans.map { AtomicFloat($0) }
+    let shakerLaneKits = (0..<ShakerStack.laneCount).map { _ in KitSlot() }
     /// Bass Follow (beta): transposes the bass line to live chords (MIDI and/or guitar audio).
     let bassFollow = BassFollow()
 
@@ -392,6 +412,20 @@ public final class DrumEngine: @unchecked Sendable {
             sequencerLock.withLock { sequencer.setPercussion(instrument: inst.rawValue, on: on) }
         case .percKit:
             percKit.value = min(max(Int(value.rounded()), 0), PercLayerKit.allCases.count - 1)
+        case .shakerPocket:
+            shakerPocket.value = min(max(value, ShakerStack.pocketRange.lowerBound), ShakerStack.pocketRange.upperBound)
+        case .shakerFeel:
+            shakerFeel.value = min(max(Int(value.rounded()), 0), ShakerFeel.allCases.count - 1)
+        case .shakerWidth:
+            shakerWidth.value = min(max(value, ShakerStack.widthRange.lowerBound), ShakerStack.widthRange.upperBound)
+        case .shakerLane1Source, .shakerLane1Level, .shakerLane1Pan, .shakerLane2Source, .shakerLane2Level,
+             .shakerLane2Pan, .shakerLane3Source, .shakerLane3Level, .shakerLane3Pan:
+            guard let (lane, kind) = ShakerStack.lane(of: address) else { return }
+            switch kind {
+            case .source: shakerLaneSource[lane].value = min(max(Int(value.rounded()), 0), ShakerSource.allCases.count - 1)
+            case .level: shakerLaneLevel[lane].value = min(max(value, 0), 1.5)
+            case .pan: shakerLanePan[lane].value = min(max(value, -1), 1)
+            }
         }
     }
 
@@ -422,6 +456,18 @@ public final class DrumEngine: @unchecked Sendable {
             Float(PercussionInstrument.allCases.first { $0.parameter == address }
                 .map { (percInstruments.value >> $0.rawValue) & 1 } ?? 0)
         case .percKit: Float(percKit.value)
+        case .shakerPocket: shakerPocket.value
+        case .shakerFeel: Float(shakerFeel.value)
+        case .shakerWidth: shakerWidth.value
+        case .shakerLane1Source, .shakerLane1Level, .shakerLane1Pan, .shakerLane2Source, .shakerLane2Level,
+             .shakerLane2Pan, .shakerLane3Source, .shakerLane3Level, .shakerLane3Pan:
+            ShakerStack.lane(of: address).map { lane, kind in
+                switch kind {
+                case .source: Float(shakerLaneSource[lane].value)
+                case .level: shakerLaneLevel[lane].value
+                case .pan: shakerLanePan[lane].value
+                }
+            } ?? 0
         }
     }
 
@@ -431,6 +477,11 @@ public final class DrumEngine: @unchecked Sendable {
     var sampleKitInUse: Int { sampleKitAck.load(ordering: .acquiring) }
 
     func publishPercSampleKit(bits: Int) { percSampleKitSlot.store(bits, ordering: .releasing) }
+    func publishShakerLaneKit(_ lane: Int, bits: Int) { shakerLaneKits[lane].published.store(bits, ordering: .releasing) }
+    /// Kits of the shaker lanes that the audio thread uses or is about to pick up.
+    var shakerLaneKitsInUse: [Int] {
+        shakerLaneKits.flatMap { [$0.published.load(ordering: .acquiring), $0.inUse.load(ordering: .acquiring)] }
+    }
     var publishedPercSampleKit: Int { percSampleKitSlot.load(ordering: .acquiring) }
     var percSampleKitInUse: Int { percSampleKitAck.load(ordering: .acquiring) }
 
@@ -546,6 +597,19 @@ public final class DrumEngine: @unchecked Sendable {
             synth.sampler.setPercKit(bits: percBits)
             percSampleKitAck.store(percBits, ordering: .releasing)
         }
+        for lane in 0..<ShakerStack.laneCount {
+            let bits = shakerLaneKits[lane].published.load(ordering: .acquiring)
+            if bits != synth.sampler.laneKitBits[lane] {
+                synth.sampler.setLaneKit(lane, bits: bits)
+                shakerLaneKits[lane].inUse.store(bits, ordering: .releasing)
+            }
+            synth.sampler.laneSource[lane] = shakerLaneSource[lane].value
+            synth.sampler.laneGain[lane] = shakerLaneLevel[lane].value
+            synth.sampler.lanePan[lane] = shakerLanePan[lane].value
+        }
+        synth.sampler.shakerWidth = shakerWidth.value
+        sequencer.shakerPocketMs = Double(shakerPocket.value)
+        sequencer.shakerFeel = ShakerFeel(rawValue: shakerFeel.value) ?? .grid
         let kitIndex = kit.value
         let sampled = kitIndex >= Kits.all.count
         synth.kit = sampled ? (synth.sampler.fallbackSynthKit ?? 0) : kitIndex

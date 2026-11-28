@@ -177,9 +177,13 @@ targets:
         inputFiles:
           - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit
           - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit
+          - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-virtuosity.pbkit
+          - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-wpplus.pbkit
         outputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit
           - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-virtuosity.pbkit
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-wpplus.pbkit
         script: |
           set -euo pipefail
           SRC="${SRCROOT}/Extension/Resources/PercKits"

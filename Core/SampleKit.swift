@@ -33,6 +33,12 @@ public struct KitManifest: Codable, Sendable {
         }
     }
 
+    /// A kit only for percussion layers or the shaker stack, not a drum kit.
+    public var isPercussionOnly: Bool { category == "layer" || category == "shaker" }
+
+    /// Optional `drums` key with a shaker's back strokes (`ShakerStack`); `shaker` holds the forward ones.
+    public static let shakerUpKey = "shakerUp"
+
     public var format = 1
     public var id: String
     public var name: String
@@ -204,6 +210,8 @@ struct SampleKitRaw {
     var layers: UnsafeMutablePointer<SLayer>
     var regions: UnsafeMutablePointer<SRegion>
     var fallbackSynthKit: Int
+    /// Shaker back strokes (`KitManifest.shakerUpKey`), layerCount 0 if the kit has none.
+    var upShaker = SDrum(firstLayer: 0, layerCount: 0, gainL: 0, gainR: 0)
 }
 
 /// Owns the memory of a loaded kit. Deallocate only after the audio thread
@@ -224,8 +232,7 @@ public final class LoadedSampleKit: @unchecked Sendable {
         var drums = [SDrum](repeating: SDrum(firstLayer: 0, layerCount: 0, gainL: 0, gainR: 0), count: Drum.count)
         var layers: [SLayer] = []
         var regions: [SRegion] = []
-        for d in Drum.allCases {
-            guard let map = m.drums[d.key] else { continue }
+        func add(_ map: KitManifest.DrumMap) -> SDrum {
             let first = layers.count
             for l in map.layers.sorted(by: { $0.hiVelocity < $1.hiVelocity }) {
                 let valid = l.regions.filter { $0.start >= 0 && $0.length > 4 && $0.start + $0.length <= m.frames }
@@ -234,10 +241,14 @@ public final class LoadedSampleKit: @unchecked Sendable {
                 regions += valid.map { SRegion(start: $0.start, length: $0.length, gain: $0.gain) }
             }
             let pan = min(max(map.pan, -1), 1)
-            drums[d.rawValue] = SDrum(firstLayer: first, layerCount: layers.count - first,
-                                      gainL: map.volume * min(1, 1 - pan), gainR: map.volume * min(1, 1 + pan),
-                                      sweep: map.sweep ?? false)
+            return SDrum(firstLayer: first, layerCount: layers.count - first,
+                         gainL: map.volume * min(1, 1 - pan), gainR: map.volume * min(1, 1 + pan),
+                         sweep: map.sweep ?? false)
         }
+        for d in Drum.allCases {
+            if let map = m.drums[d.key] { drums[d.rawValue] = add(map) }
+        }
+        let upShaker = m.drums[KitManifest.shakerUpKey].map(add) ?? SDrum(firstLayer: 0, layerCount: 0, gainL: 0, gainR: 0)
         if layers.isEmpty { audio.deallocate(); throw KitFileError.badManifest("no playable samples") }
         layerCount = layers.count; regionCount = regions.count
         let dp = UnsafeMutablePointer<SDrum>.allocate(capacity: Drum.count); dp.initialize(from: drums, count: Drum.count)
@@ -245,7 +256,8 @@ public final class LoadedSampleKit: @unchecked Sendable {
         let rp = UnsafeMutablePointer<SRegion>.allocate(capacity: regions.count); rp.initialize(from: regions, count: regions.count)
         raw = .allocate(capacity: 1)
         raw.initialize(to: SampleKitRaw(audio: audio.baseAddress!, frames: m.frames, sampleRate: m.sampleRate,
-                                        drums: dp, layers: lp, regions: rp, fallbackSynthKit: m.fallbackSynthKit))
+                                        drums: dp, layers: lp, regions: rp, fallbackSynthKit: m.fallbackSynthKit,
+                                        upShaker: upShaker))
     }
 
     deinit {
@@ -263,7 +275,8 @@ struct SampleVoice {
     var drum = 0
     var delay = 0
     var audio: UnsafeMutablePointer<Int16>?   // interleaved stereo audio of the kit the hit came from
-    var layerKit = false   // from the percussion-layer kit (stopped when that kit changes)
+    var owner: Int8 = 0    // kit it reads: 0 drum kit, 1 percussion-layer kit, 2 + i shaker lane i (stopped when it changes)
+    var width: Float = 1   // stereo width (1 = as recorded)
     var start = 0          // first frame (absolute in `audio`)
     var length = 0
     var pos: Double = 0    // relative position in frames
@@ -280,7 +293,10 @@ struct SampleVoice {
 
 final class Sampler {
     static let voicesPerDrum = 5
-    let voiceCount = Drum.count * Sampler.voicesPerDrum
+    /// Shaker-stack lanes get voices of their own (several overlapping hits per lane).
+    static let voicesPerLane = 6
+    static let laneVoiceBase = Drum.count * Sampler.voicesPerDrum
+    let voiceCount = Drum.count * Sampler.voicesPerDrum + ShakerStack.laneCount * Sampler.voicesPerLane
     let voices: UnsafeMutablePointer<SampleVoice>
     /// Live mixer gains (linear), default 1. Applied at render so faders move instantly.
     let mixGain: UnsafeMutablePointer<Float>
@@ -295,6 +311,14 @@ final class Sampler {
     private var serial = 0
     private var lastRegion = [Int](repeating: -1, count: Drum.count)
     private var lastPercRegion = [Int](repeating: -1, count: Drum.count)
+    // Shaker stack (`ShakerStack`): kits of the lanes and their settings, set by the engine every render.
+    private var laneKit = [SampleKitRaw?](repeating: nil, count: ShakerStack.laneCount)
+    private(set) var laneKitBits = [Int](repeating: 0, count: ShakerStack.laneCount)
+    private var lastLaneRegion = [Int](repeating: -1, count: ShakerStack.laneCount)
+    var laneSource = ShakerStack.defaultSources.map(\.rawValue)
+    var laneGain = ShakerStack.defaultLevels
+    var lanePan = ShakerStack.defaultPans
+    var shakerWidth: Float = 1
     /// Output frames per beat at the current tempo (set by the engine every render).
     var beatFrames: Double = 22050
 
@@ -328,10 +352,19 @@ final class Sampler {
     /// Audio thread: kit for percussion-layer hits only (0 = use the drum kit).
     func setPercKit(bits: Int) {
         // Its voices read the old kit's audio, which is freed once the engine acknowledges the switch.
-        for i in 0..<voiceCount where voices[i].layerKit { voices[i].active = false }
+        for i in 0..<voiceCount where voices[i].owner == 1 { voices[i].active = false }
         percKitBits = bits
         percKit = UnsafeMutablePointer<SampleKitRaw>(bitPattern: bits)?.pointee
         for i in 0..<Drum.count { lastPercRegion[i] = -1 }
+    }
+
+    /// Audio thread: kit of shaker lane `lane` (0 = none).
+    func setLaneKit(_ lane: Int, bits: Int) {
+        let owner = Int8(2 + lane)
+        for i in 0..<voiceCount where voices[i].owner == owner { voices[i].active = false }
+        laneKitBits[lane] = bits
+        laneKit[lane] = UnsafeMutablePointer<SampleKitRaw>(bitPattern: bits)?.pointee
+        lastLaneRegion[lane] = -1
     }
 
     func has(_ drum: Int) -> Bool {
@@ -347,20 +380,54 @@ final class Sampler {
     /// Returns false if the active kit has no sample for this drum.
     func trigger(_ drum: Int, velocity: Float, delay: Int, gain: Float = 1) -> Bool {
         guard let k = kit else { return false }
-        return trigger(drum, velocity: velocity, delay: delay, gain: gain, kit: k, last: &lastRegion)
+        return play(k.drums[drum], kit: k, drum: drum, velocity: velocity, delay: delay, gain: gain,
+                    last: &lastRegion[drum], voiceBase: drum * Sampler.voicesPerDrum, owner: 0)
     }
 
     /// Percussion-layer hit: prefer the layer kit, else the drum kit.
     func triggerLayer(_ drum: Int, velocity: Float, delay: Int, gain: Float = 1) -> Bool {
         if let pk = percKit, pk.drums[drum].layerCount > 0 {
-            return trigger(drum, velocity: velocity, delay: delay, gain: gain, kit: pk, last: &lastPercRegion, layerKit: true)
+            return play(pk.drums[drum], kit: pk, drum: drum, velocity: velocity, delay: delay, gain: gain,
+                        last: &lastPercRegion[drum], voiceBase: drum * Sampler.voicesPerDrum, owner: 1)
         }
         return trigger(drum, velocity: velocity, delay: delay, gain: gain)
     }
 
-    private func trigger(_ drum: Int, velocity: Float, delay: Int, gain: Float,
-                         kit k: SampleKitRaw, last: inout [Int], layerKit: Bool = false) -> Bool {
-        let d = k.drums[drum]
+    /// Percussion-layer shaker hit through the shaker stack: every lane that is on plays it with its
+    /// own sound, level and pan (`back` = a back stroke, for kits that have them). False if no lane
+    /// could play it (its kit is still loading), so the synth stands in; true with every lane off.
+    func triggerShaker(velocity: Float, delay: Int, gain: Float = 1, back: Bool) -> Bool {
+        let sh = Drum.shaker.rawValue
+        var anyOn = false, played = false
+        for lane in 0..<ShakerStack.laneCount where laneSource[lane] != ShakerSource.off.rawValue {
+            anyOn = true
+            var source: SampleKitRaw?
+            var owner: Int8 = Int8(2 + lane)
+            if laneSource[lane] == ShakerSource.percKit.rawValue {
+                if let pk = percKit, pk.drums[sh].layerCount > 0 { source = pk; owner = 1 }
+                else if let dk = kit, dk.drums[sh].layerCount > 0 { source = dk; owner = 0 }
+            } else {
+                source = laneKit[lane]
+            }
+            guard let k = source else { continue }
+            let d = back && k.upShaker.layerCount > 0 ? k.upShaker : k.drums[sh]
+            guard d.layerCount > 0 else { continue }
+            let g = gain * max(laneGain[lane], 0)
+            if g <= 0 { played = true; continue }
+            if play(d, kit: k, drum: sh, velocity: velocity, delay: delay, gain: g, last: &lastLaneRegion[lane],
+                    voiceBase: Sampler.laneVoiceBase + lane * Sampler.voicesPerLane, slots: Sampler.voicesPerLane,
+                    owner: owner, pan: lanePan[lane], width: shakerWidth, sweeps: false) {
+                played = true
+            }
+        }
+        return played || !anyOn
+    }
+
+    /// Starts a hit of `d` (one drum of kit `k`) in a free voice of `voiceBase ..< voiceBase + slots`.
+    /// `pan` balances it on top of the kit's own pan; `width` scales its stereo image.
+    private func play(_ d: SDrum, kit k: SampleKitRaw, drum: Int, velocity: Float, delay: Int, gain: Float,
+                      last: inout Int, voiceBase base: Int, slots: Int = Sampler.voicesPerDrum, owner: Int8,
+                      pan: Float = 0, width: Float = 1, sweeps: Bool = true) -> Bool {
         guard d.layerCount > 0 else { return false }
         let v127 = min(max(velocity, 0.0), 1.0) * 127
 
@@ -370,13 +437,13 @@ final class Sampler {
         let layer = k.layers[d.firstLayer + li]
         // Round robin: random, never the same region twice in a row.
         var ri = layer.first + Int(random() % UInt32(layer.count))
-        if layer.count > 1 && ri == last[drum] { ri = layer.first + (ri - layer.first + 1) % layer.count }
-        last[drum] = ri
+        if layer.count > 1 && ri == last { ri = layer.first + (ri - layer.first + 1) % layer.count }
+        last = ri
         let region = k.regions[ri]
         let dyn = powf(max(v127, 1) / layer.hiVel, 0.55) * max(gain, 0)
 
         let dly = max(delay, 0)
-        if d.sweep { return triggerSweep(drum, d: d, region: region, gain: region.gain * dyn, delay: dly, kit: k, layerKit: layerKit) }
+        if d.sweep && sweeps { return triggerSweep(drum, d: d, region: region, gain: region.gain * dyn, delay: dly, kit: k, owner: owner) }
         // Hi-hat choke.
         if drum == Drum.hatClosed.rawValue || drum == Drum.hatPedal.rawValue {
             let base = Drum.hatOpen.rawValue * Sampler.voicesPerDrum
@@ -385,10 +452,9 @@ final class Sampler {
             }
         }
 
-        // Voice slot: free one in this drum's range, else steal the oldest.
-        let base = drum * Sampler.voicesPerDrum
+        // Voice slot: free one in this range, else steal the oldest.
         var slot = -1, oldest = base, activeCount = 0
-        for j in base..<(base + Sampler.voicesPerDrum) {
+        for j in base..<(base + slots) {
             if !voices[j].active { if slot < 0 { slot = j } } else {
                 activeCount += 1
                 if voices[j].serial < voices[oldest].serial || !voices[oldest].active { oldest = j }
@@ -406,13 +472,15 @@ final class Sampler {
         nv.drum = drum
         nv.delay = dly
         nv.audio = k.audio
-        nv.layerKit = layerKit
+        nv.owner = owner
+        nv.width = min(max(width, 0), 2)
         nv.start = region.start
         nv.length = region.length
         nv.step = k.sampleRate / outRate
         let g = region.gain * dyn * (1.0 / 32768.0)
-        nv.gL = g * d.gainL
-        nv.gR = g * d.gainR
+        let p = min(max(pan, -1), 1)
+        nv.gL = g * d.gainL * min(1, 1 - p)
+        nv.gR = g * d.gainR * min(1, 1 + p)
         nv.serial = serial
         voices[slot] = nv
         return true
@@ -421,7 +489,7 @@ final class Sampler {
     /// A sweep continues the stir: it crossfades out the previous sweep, starts at a random
     /// point of a long recording with a short fade-in, and releases after two beats.
     private func triggerSweep(_ drum: Int, d: SDrum, region: SRegion, gain: Float, delay dly: Int,
-                              kit k: SampleKitRaw, layerKit: Bool) -> Bool {
+                              kit k: SampleKitRaw, owner: Int8) -> Bool {
         let xfade = Float(0.04 * outRate)
         let base = drum * Sampler.voicesPerDrum
         var slot = -1, oldest = base
@@ -446,7 +514,7 @@ final class Sampler {
         nv.drum = drum
         nv.delay = dly
         nv.audio = k.audio
-        nv.layerKit = layerKit
+        nv.owner = owner
         nv.start = region.start + offset
         nv.length = region.length - offset
         nv.step = step
@@ -509,6 +577,10 @@ final class Sampler {
                                         ip + 2 < v.length ? Float(a[idx + 4]) : 0)
                     r = Sampler.hermite(f, Float(a[idx - 1]), Float(a[idx + 1]), Float(a[idx + 3]),
                                         ip + 2 < v.length ? Float(a[idx + 5]) : 0)
+                }
+                if v.width != 1 {
+                    let mid = (l + r) * 0.5, side = (l - r) * 0.5 * v.width
+                    l = mid + side; r = mid - side
                 }
                 if v.rise > 0 {
                     v.attack += v.rise
@@ -578,6 +650,9 @@ public final class KitManager: @unchecked Sendable {
     public var onChange: (@Sendable () -> Void)?
     /// Currently selected percussion-layer kit (`PercLayerKit`).
     private var percLayerChoice = PercLayerKit.drumKit
+    /// Kits of the shaker-stack lanes (`ShakerStack`), loaded or loading.
+    private var loadedLane = [LoadedSampleKit?](repeating: nil, count: ShakerStack.laneCount)
+    private var loadingLaneID = [String?](repeating: nil, count: ShakerStack.laneCount)
 
     public init(engine: DrumEngine, directory: URL? = nil, installedDirectory: URL? = nil) {
         self.engine = engine
@@ -641,12 +716,14 @@ public final class KitManager: @unchecked Sendable {
     public func remove(id: String) {
         guard let k = kits.first(where: { $0.id == id }), k.removable else { return }
         let wasPerc = lock.withLock { loadedPerc?.manifest.id == id }
+        let lanes = lock.withLock { (0..<ShakerStack.laneCount).filter { loadedLane[$0]?.manifest.id == id } }
         try? FileManager.default.removeItem(at: k.url)
         lock.withLock {
             if loaded?.manifest.id == id { loadingID = nil }
             if wasPerc { loadingPercID = nil; percLayerChoice = .drumKit }
         }
         if wasPerc { selectPercLayer(.drumKit) }
+        if let engine { for lane in lanes { publishLane(lane, nil, engine: engine) } }
         rescan()
         onChange?()
     }
@@ -683,7 +760,9 @@ public final class KitManager: @unchecked Sendable {
         }
     }
 
-    public var isLoading: Bool { lock.withLock { loadingID != nil || loadingPercID != nil } }
+    public var isLoading: Bool {
+        lock.withLock { loadingID != nil || loadingPercID != nil || loadingLaneID.contains { $0 != nil } }
+    }
     private var lastError: String?
     /// Error from the last failed kit load, if any.
     public var loadError: String? { lock.withLock { lastError } }
@@ -750,6 +829,72 @@ public final class KitManager: @unchecked Sendable {
         reclaim()
     }
 
+    /// Shaker sounds whose kits are installed (Off and Perc Kit always).
+    public var availableShakerSources: [ShakerSource] {
+        let ids = Set(kits.map(\.id))
+        return ShakerSource.allCases.filter { $0.sampleKitID.map(ids.contains) ?? true }
+    }
+
+    /// Loads the kit of shaker lane `lane`'s sound (none for Off and Perc Kit, which plays the percussion
+    /// kit's shaker). A kit already loaded for the drums, the percussion layers or another lane is shared.
+    public func selectShakerLane(_ lane: Int, source: ShakerSource) {
+        guard let engine, (0..<ShakerStack.laneCount).contains(lane) else { return }
+        reclaim()
+        guard let id = source.sampleKitID else {
+            lock.withLock { loadingLaneID[lane] = nil }
+            publishLane(lane, nil, engine: engine)
+            return
+        }
+        guard let inst = kits.first(where: { $0.id == id }) else {
+            lock.withLock { loadingLaneID[lane] = nil; lastError = "\(source.name) shaker isn’t installed." }
+            publishLane(lane, nil, engine: engine)
+            onChange?()
+            return
+        }
+        enum Plan { case done, share(LoadedSampleKit), load }
+        let plan: Plan = lock.withLock {
+            if loadingLaneID[lane] == id { return .done }   // on its way
+            if loadedLane[lane]?.manifest.id == id { loadingLaneID[lane] = nil; return .done }
+            if let k = ([loaded, loadedPerc] + loadedLane).compactMap({ $0 }).first(where: { $0.manifest.id == id }) {
+                loadingLaneID[lane] = nil
+                return .share(k)
+            }
+            loadingLaneID[lane] = id
+            return .load
+        }
+        switch plan {
+        case .done: return
+        case .share(let kit):
+            publishLane(lane, kit, engine: engine)
+            onChange?()
+            return
+        case .load: break
+        }
+        queue.async { [weak self] in
+            guard let self else { return }
+            let result = Result { try LoadedSampleKit(url: inst.url) }
+            guard self.lock.withLock({ self.loadingLaneID[lane] == id }) else { return }
+            switch result {
+            case .success(let kit):
+                self.publishLane(lane, kit, engine: engine)
+                self.lock.withLock { self.loadingLaneID[lane] = nil; self.lastError = nil }
+            case .failure(let error):
+                self.lock.withLock { self.loadingLaneID[lane] = nil; self.lastError = "\(inst.name): \(error.localizedDescription)" }
+                self.publishLane(lane, nil, engine: engine)
+            }
+            self.onChange?()
+        }
+    }
+
+    private func publishLane(_ lane: Int, _ kit: LoadedSampleKit?, engine: DrumEngine) {
+        lock.withLock {
+            if let old = loadedLane[lane], old !== kit { retired.append(old) }
+            loadedLane[lane] = kit
+            engine.publishShakerLaneKit(lane, bits: kit?.bits ?? 0)
+        }
+        reclaim()
+    }
+
     private func publishPerc(_ kit: LoadedSampleKit?, engine: DrumEngine) {
         lock.withLock {
             if let old = loadedPerc, old !== kit { retired.append(old) }
@@ -763,8 +908,8 @@ public final class KitManager: @unchecked Sendable {
     private func reclaim() {
         guard let engine else { return }
         let pending: Bool = lock.withLock {
-            let keep: Set<Int> = [engine.sampleKitInUse, engine.publishedSampleKit,
-                                  engine.percSampleKitInUse, engine.publishedPercSampleKit]
+            let keep = Set([engine.sampleKitInUse, engine.publishedSampleKit,
+                            engine.percSampleKitInUse, engine.publishedPercSampleKit] + engine.shakerLaneKitsInUse)
             retired.removeAll { !keep.contains($0.bits) }
             return !retired.isEmpty
         }
@@ -776,7 +921,7 @@ public final class KitManager: @unchecked Sendable {
     /// Copies bundled layer kits from the plug-in Resources into the user Kits folder.
     /// Always refreshes known layer-kit ids so sample fixes ship on update.
     public func ensureBundledLayerKits(from bundles: [Bundle]) {
-        let needed = Set(PercLayerKit.allCases.compactMap(\.sampleKitID))
+        let needed = Set(PercLayerKit.allCases.compactMap(\.sampleKitID) + ShakerSource.allCases.compactMap(\.sampleKitID))
         guard !needed.isEmpty else { return }
         var imported = false
         for bundle in bundles {

@@ -6,6 +6,7 @@ This script stages:
   - Hand Percussion (WP11+WP12): Shaker / Tambourine / Clap / Maracas + light cajón fill
   - Cajón 3 WP Accent (optional BB companion): multi-velocity WP cajón with soft=ghost layers
   - Layer World: the World kit of the Percussion-layer picker (shaker / tambourine / clap / maracas)
+  - Shaker kits for the shaker stack (ShakerStack): Virtuosity (forward + back strokes), World Plus
 
 Output: <pedalbeat-data>/build/kit-staging/ (PEDALBEAT_DATA=<path>, default ../pedalbeat-data next to this repo).
 Then pack a staged kit:  ./build/bbkitbuilder ../pedalbeat-data/build/kit-staging <out> "03. Layer World"
@@ -35,6 +36,11 @@ for p in (DATA / "drumsets-decoded" / "11. World Percussion", DATA / "drumsets-d
 STAGING = DATA / "build" / "kit-staging"
 GOGO = DATA / "build" / "kits-src" / "karoryfer.gogodze-phu-vol-i" / "Samples" / "cajon" / "dyn"
 SWIRLY = DATA / "build" / "kits-src" / "karoryfer.swirly-drums" / "Samples" / "cajon_kick"
+VIRTUOSITY_SHAKER = DATA / "build" / "kits-src" / "virtuosity_drums" / "Samples" / "perc" / "mid" / "shaker"
+# Shaker stack kits: levels set so every shaker sound plays about as loud as the Layer World one.
+VIRTUOSITY_VOLUME = 355
+VIRTUOSITY_BACK_VOLUME = 470      # back strokes about 2.5 dB under the forward ones (recorded 5 dB under)
+WPPLUS_VOLUME = 110
 
 
 def load_kit(pack: Path) -> dict:
@@ -437,6 +443,62 @@ def build_layer_world(dest: Path) -> None:
     print(f"staged {dest.name}: {len(instruments)} instruments")
 
 
+def build_shaker_virtuosity(dest: Path) -> None:
+    """Virtuosity Drums shaker (CC0, mid mics): forward strokes as the shaker, back strokes as
+    "shakerUp", which the shaker stack plays between the beats."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    down = sorted(VIRTUOSITY_SHAKER.glob("LShaker_Shake1D_rr*_Mid.wav"), key=lambda f: int(f.name.split("_rr")[1].split("_")[0]))
+    up = sorted(VIRTUOSITY_SHAKER.glob("LShaker_Shake1U_rr*_Mid.wav"), key=lambda f: int(f.name.split("_rr")[1].split("_")[0]))
+    if not down or not up:
+        raise FileNotFoundError(f"Virtuosity shaker strokes missing: {VIRTUOSITY_SHAKER}")
+    forward = make_instrument(name="Shaker", midi=82, volume=VIRTUOSITY_VOLUME,
+                              samples=add_wavs(down, dest, "82-Shaker", "0-127"))
+    back = make_instrument(name="Shaker Back", midi=82, volume=VIRTUOSITY_BACK_VOLUME,
+                           samples=add_wavs(up, dest, "82-Shaker_Up", "0-127"))
+    back["key"] = "shakerUp"
+    kit = {
+        "id": "pedalbeat.shaker-virtuosity",
+        "name": "Shaker Virtuosity",
+        "category": "shaker",
+        "author": "Virtuosity Drums (Austin McMahon, Virtuosity Musical Instruments)",
+        "license": "CC0-1.0",
+        "source": "https://github.com/sfzinstruments/virtuosity_drums",
+        "notes": "Shaker with forward and back strokes (mid mics), for the PedalBeat shaker stack.",
+        "file": "shaker-virtuosity",
+        "version": "1.0",
+        "volume": 120,
+        "instruments": [forward, back],
+    }
+    (dest / "kit.json").write_text(json.dumps(kit, indent=2) + "\n")
+    print(f"staged {dest.name}: {len(down)} forward, {len(up)} back strokes")
+
+
+def build_shaker_wpplus(dest: Path) -> None:
+    """The World Percussion Plus one-shot shaker (Layer World's shaker before the WP egg)."""
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.mkdir(parents=True)
+    shaker1 = find_inst(load_kit(WP12), midi=82, name_substr="Shaker 1")
+    kit = {
+        "id": "pedalbeat.shaker-wpplus",
+        "name": "Shaker World Plus",
+        "category": "shaker",
+        "author": "GoranGrooves World Percussion Plus",
+        "license": "WP proprietary",
+        "source": "World Percussion Plus (Shaker 1)",
+        "notes": "One-shot shaker for the PedalBeat shaker stack.",
+        "file": "shaker-wpplus",
+        "version": "1.0",
+        "volume": 120,
+        "instruments": [make_instrument(name="Shaker", midi=82, volume=WPPLUS_VOLUME,
+                                        samples=copy_samples(WP12, shaker1, dest, "82-Shaker"))],
+    }
+    (dest / "kit.json").write_text(json.dumps(kit, indent=2) + "\n")
+    print(f"staged {dest.name}")
+
+
 def main() -> None:
     STAGING.mkdir(parents=True, exist_ok=True)
     for old in list(STAGING.glob("01.*")) + list(STAGING.glob("03.*")):
@@ -444,6 +506,8 @@ def main() -> None:
             shutil.rmtree(old)
     build_wp_ghost_cajon(STAGING / "01. Cajon 3 WP")
     build_layer_world(STAGING / "03. Layer World")
+    build_shaker_virtuosity(STAGING / "05. Shaker Virtuosity")
+    build_shaker_wpplus(STAGING / "06. Shaker World Plus")
     print("done →", STAGING)
 
 

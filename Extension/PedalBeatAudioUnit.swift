@@ -170,6 +170,7 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
                                            busses: [mainInputBus, guitarInputBus])
         maximumFramesToRender = 4096
         _parameterTree = makeParameterTree()
+        loadShakerLanes()
         if let first = library.songs.first { engine.setParameter(.tempo, Float(first.tempo)) }
         engine.setMIDIMappings(.load())
         NotificationCenter.default.addObserver(self, selector: #selector(midiMappingsChanged),
@@ -180,6 +181,14 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
     @objc private func midiMappingsChanged() { engine.setMIDIMappings(.load()) }
 
     // MARK: Parameters
+
+    /// Loads the kits of the shaker lanes' sounds (at launch and after a state restore).
+    private func loadShakerLanes() {
+        for lane in 0..<ShakerStack.laneCount {
+            let raw = Int(engine.parameter(ShakerStack.address(lane: lane, .source)))
+            kits.selectShakerLane(lane, source: ShakerSource(rawValue: raw) ?? .off)
+        }
+    }
 
     private func makeParameterTree() -> AUParameterTree {
         let rw: AudioUnitParameterOptions = [.flag_IsReadable, .flag_IsWritable]
@@ -220,7 +229,21 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             p("percAuto", "Auto Percussion", .percAuto, 0, 1, .boolean),
             p("percKit", "Percussion Kit", .percKit, 0, Float(PercLayerKit.allCases.count - 1), .indexed,
               strings: PercLayerKit.allCases.map(\.name)),
-        ]
+            p("shakerPocket", "Shaker Pocket", .shakerPocket,
+              ShakerStack.pocketRange.lowerBound, ShakerStack.pocketRange.upperBound, .milliseconds),
+            p("shakerFeel", "Shaker Feel", .shakerFeel, 0, Float(ShakerFeel.allCases.count - 1), .indexed,
+              strings: ShakerFeel.allCases.map(\.name)),
+            p("shakerWidth", "Shaker Width", .shakerWidth,
+              ShakerStack.widthRange.lowerBound, ShakerStack.widthRange.upperBound, .linearGain),
+        ] + (0..<ShakerStack.laneCount).flatMap { lane -> [AUParameter] in
+            let n = lane + 1
+            return [
+                p("shakerLane\(n)Source", "Shaker \(n) Sound", ShakerStack.address(lane: lane, .source),
+                  0, Float(ShakerSource.allCases.count - 1), .indexed, strings: ShakerSource.allCases.map(\.name)),
+                p("shakerLane\(n)Level", "Shaker \(n) Level", ShakerStack.address(lane: lane, .level), 0, 1.5, .linearGain),
+                p("shakerLane\(n)Pan", "Shaker \(n) Pan", ShakerStack.address(lane: lane, .pan), -1, 1, .pan),
+            ]
+        }
         for prm in params {
             if let a = ParamAddress(rawValue: prm.address) { prm.value = engine.parameter(a) }
         }
@@ -235,6 +258,9 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             if a == .percKit {
                 let choice = PercLayerKit(rawValue: Int(engine.parameter(.percKit))) ?? .drumKit
                 kits.selectPercLayer(choice)
+            }
+            if let (lane, kind) = ShakerStack.lane(of: a), kind == .source {
+                kits.selectShakerLane(lane, source: ShakerSource(rawValue: Int(engine.parameter(a))) ?? .off)
             }
         }
         tree.implementorValueProvider = { param in
@@ -253,6 +279,9 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             case .chordTimbre: return ChordTimbre(rawValue: Int(v.rounded()))?.name ?? "Mixed"
             case .chordCommitGrid: return ChordCommitGrid(rawValue: Int(v.rounded()))?.name ?? "Strong Beats"
             case .percKit: return PercLayerKit(rawValue: Int(v.rounded()))?.name ?? "Drum Kit"
+            case .shakerFeel: return ShakerFeel(rawValue: Int(v.rounded()))?.name ?? "Grid"
+            case .shakerPocket: return String(format: "%+.0f ms", v)
+            case .shakerWidth: return "\(Int((v * 100).rounded()))%"
             default: return String(format: "%.0f", v)
             }
         }
@@ -476,6 +505,7 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
                     : (PercLayerKit.allCases.first { $0.sampleKitID == id } ?? .drumKit)
                 parameter(.percKit)?.value = Float(choice.rawValue)
             }
+            loadShakerLanes()
         }
     }
 

@@ -129,6 +129,13 @@ final class Sequencer {
     private var autoPercEnabled = false
     /// Level of the layers: scales their hits, not the drums'.
     var percGain: Float = 1
+    /// Shaker stack timing (`ShakerStack`): the layer shaker earlier (< 0) or later in ms, and its feel.
+    var shakerPocketMs: Double = 0
+    var shakerFeel = ShakerFeel.grid
+    /// Layer `k` is in the first pass of its pattern (no hit before its start to carry over).
+    private var percFresh = [Bool](repeating: false, count: PercussionInstrument.count)
+    /// Layer `k`'s pattern has 16ths (back strokes between the 8ths).
+    private var percDense = [Bool](repeating: false, count: PercussionInstrument.count)
 
     init(store: SongStore, synth: DrumSynth, bass: BassSynth, bassFollow: BassFollow) {
         self.store = store
@@ -258,6 +265,15 @@ final class Sequencer {
     private func startPerc(_ k: Int, _ pat: Int32, at position: Double, fill: Bool = false) {
         percPattern[k] = pat
         percInFill[k] = pat >= 0 && fill
+        percFresh[k] = true
+        percDense[k] = false
+        if pat >= 0 {
+            let p = store.patterns[Int(pat)]
+            for i in Int(p.start)..<Int(p.start + p.count) where Int(store.events[i].tick) % (PPQN / 2) != 0 {
+                percDense[k] = true
+                break
+            }
+        }
         let len = length(of: pat)
         percPos[k] = len > 0 ? position.truncatingRemainder(dividingBy: len) : 0
     }
@@ -533,7 +549,7 @@ final class Sequencer {
 
     /// `gain` scales the sound only (percussion level); MIDI out keeps the written velocity.
     private func trigger(_ drum: Int, velocity: Float, offset: Int, humanized: Bool = true,
-                         gain: Float = 1, layer: Bool = false) {
+                         gain: Float = 1, layer: Bool = false, back: Bool = false) {
         var vel = velocity
         var off = offset
         if humanized && humanize > 0 {
@@ -545,7 +561,7 @@ final class Sequencer {
             off += Int(Double(r2) * humanize * 0.010 * sampleRate)
         }
         vel = min(max(vel, 0.02), 1)
-        synth.trigger(drum, velocity: vel, delay: off, gain: gain, layer: layer)
+        synth.trigger(drum, velocity: vel, delay: off, gain: gain, layer: layer, back: back)
         if outCount < outCapacity, let d = Drum(rawValue: drum) {
             outEvents[outCount] = OutEvent(offset: Int32(chunkOffset + off), note: d.gmNote,
                                            velocity: UInt8(min(127, max(1, Int(vel * 127)))))
@@ -629,12 +645,18 @@ final class Sequencer {
     }
 
     /// Plays the next `ticks` of every percussion layer, each looping on its own length (see `emitBass`).
+    /// The shaker plays at its pocket and feel, which can move a hit across the loop point: one moved
+    /// before its pattern's start plays at the end of the pass before (and on the first pass at its
+    /// start), one moved past the end plays at the start of the next pass.
     private func emitPercussion(ticks: Double, sampleBase: Double, tps: Double, snap: Bool = false) {
+        let shakerK = PercussionInstrument.shaker.rawValue
         for k in 0..<PercussionInstrument.count where percPattern[k] >= 0 {
             let p = store.patterns[Int(percPattern[k])]
             let len = Double(p.length)
             guard len > 0 else { continue }
             let start = Int(p.start), end = start + Int(p.count)
+            let shaker = k == shakerK
+            let pocket = shaker ? shakerPocketMs / 1000 * sampleRate * tps : 0
             var at = percPos[k]
             var target = snap ? (at + ticks).rounded() : at + ticks   // end of this stretch, not wrapped
             var base = sampleBase
@@ -644,14 +666,32 @@ final class Sequencer {
                 while i < end {
                     let e = store.events[i]
                     let t = Double(e.tick) + swing * Double(e.swingUnit) + 1e-6
-                    if t >= from && t < to {
-                        trigger(Int(e.drum), velocity: Float(e.velocity) / 127,
-                                offset: Int(base + (t - from) / tps), gain: percGain, layer: true)
+                    if !shaker {
+                        if t >= from && t < to {
+                            trigger(Int(e.drum), velocity: Float(e.velocity) / 127,
+                                    offset: Int(base + (t - from) / tps), gain: percGain, layer: true)
+                        }
+                    } else {
+                        let tick = Int(e.tick)
+                        let back = ShakerStack.isBackStroke(tick: tick, dense: percDense[k])
+                        let moved = t + pocket + ShakerStack.feelTicks(tick: tick, feel: shakerFeel)
+                        func play(_ at: Double) {
+                            trigger(Int(e.drum), velocity: Float(e.velocity) / 127,
+                                    offset: Int(base + (at - from) / tps), gain: percGain, layer: true, back: back)
+                        }
+                        if moved < 0 {
+                            if moved + len >= from && moved + len < to { play(moved + len) }
+                            if percFresh[k] && from < 1e-9 { play(from) }
+                        } else if moved >= len {
+                            if !percFresh[k] && moved - len >= from && moved - len < to { play(moved - len) }
+                        } else if moved >= from && moved < to {
+                            play(moved)
+                        }
                     }
                     i += 1
                 }
                 base += (to - from) / tps
-                if to >= len - 1e-6 { target -= len; at = 0 } else if to > from { at = to } else { break }
+                if to >= len - 1e-6 { target -= len; at = 0; percFresh[k] = false } else if to > from { at = to } else { break }
             }
             if snap { at = at.rounded(); if at >= len { at = 0 } }
             percPos[k] = at

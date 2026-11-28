@@ -57,6 +57,7 @@
 		96C48D4E759CB99DBD9F3B65 /* ChordDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33A2F9DCE65F2BE8D1C7BA62 /* ChordDetector.swift */; };
 		9DD6BC9D99F46CD2AB3B70AF /* ChordML.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3D5326F7AC086E06B2D0B7D0 /* ChordML.swift */; };
 		9FFBA037D46622683817CB7B /* PatternDSL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CF70D63C9BA2BA732C630E /* PatternDSL.swift */; };
+		A36D45E43B8D9DD8855F10B0 /* ShakerStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A6F32E1469B073F01B5DB3 /* ShakerStack.swift */; };
 		A4300E5BEDDDA9290522CE3C /* ChordMLWeights+Trained.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70BE826BB029B92A7DA4798 /* ChordMLWeights+Trained.swift */; };
 		AAD574C92E87C0FBB4012EB2 /* BassFollow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4250F311ACEA1FC6A6A0ED20 /* BassFollow.swift */; };
 		BB0B92710FF6A4CC78DFDAAA /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3B84A81CB1402E12D709690 /* Assets.xcassets */; };
@@ -68,6 +69,7 @@
 		C4C31F5DFC66B9A05EB406E9 /* MIDIFolderImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7910D05A7E119DD2D317EA5D /* MIDIFolderImport.swift */; };
 		CDEFE6F3F807F57C0838CC2B /* PedalBeatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E7DA613164442F53BAF50B2 /* PedalBeatApp.swift */; };
 		D00A9BDD18DD3EDEF39300A4 /* Drum.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4226508DB2BF382654F7690 /* Drum.swift */; };
+		D1B4825BEDC688C44DB160D8 /* ShakerStack.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4A6F32E1469B073F01B5DB3 /* ShakerStack.swift */; };
 		DAEC8552944E5D0B7357F9E7 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3B84A81CB1402E12D709690 /* Assets.xcassets */; };
 		DC4D9F2B889F8795F756CA57 /* SongLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12A8D173E503BAAC48554017 /* SongLibrary.swift */; };
 		DE0AB6039F6BD5727D49C36F /* PatternDSL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1CF70D63C9BA2BA732C630E /* PatternDSL.swift */; };
@@ -184,6 +186,7 @@
 		D99974787381F977C2522907 /* BBSImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BBSImport.swift; sourceTree = "<group>"; };
 		DA2CF5463DAB783FBCC9DDF4 /* SongIndexData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SongIndexData.swift; sourceTree = "<group>"; };
 		DC388BFEC89DFD8624072B38 /* MIDISettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDISettingsView.swift; sourceTree = "<group>"; };
+		E4A6F32E1469B073F01B5DB3 /* ShakerStack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShakerStack.swift; sourceTree = "<group>"; };
 		EA4329151496033C4674AED6 /* Sequencer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sequencer.swift; sourceTree = "<group>"; };
 		F6130B198CE6D7DFADFB7A50 /* MIDIWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MIDIWriter.swift; sourceTree = "<group>"; };
 		F77ACFA8577B38F8752387C8 /* SolititoORT.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = SolititoORT.cpp; sourceTree = "<group>"; };
@@ -239,6 +242,7 @@
 				B65EE707A7F7D7B66B6FE9AC /* PercussionGenerator.swift */,
 				32D96DB03A8626D986BC7989 /* SampleKit.swift */,
 				EA4329151496033C4674AED6 /* Sequencer.swift */,
+				E4A6F32E1469B073F01B5DB3 /* ShakerStack.swift */,
 				AE8DAC52DCDBF415A6C1C32A /* SongIndex.swift */,
 				DA2CF5463DAB783FBCC9DDF4 /* SongIndexData.swift */,
 				12A8D173E503BAAC48554017 /* SongLibrary.swift */,
@@ -541,6 +545,8 @@
 			inputPaths = (
 				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit",
 				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-virtuosity.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-wpplus.pbkit",
 			);
 			name = "Embed Percussion Layer Kits";
 			outputFileListPaths = (
@@ -548,6 +554,8 @@
 			outputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit",
 				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-virtuosity.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-wpplus.pbkit",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -583,6 +591,8 @@
 			inputPaths = (
 				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit",
 				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-virtuosity.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.shaker-wpplus.pbkit",
 			);
 			name = "Embed Percussion Layer Kits";
 			outputFileListPaths = (
@@ -590,6 +600,8 @@
 			outputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit",
 				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-virtuosity.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.shaker-wpplus.pbkit",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -638,6 +650,7 @@
 				053F235CCF7AC6FF889EA353 /* PercussionGenerator.swift in Sources */,
 				36ABF2F4B59A56B8923A162B /* SampleKit.swift in Sources */,
 				BB906E1AE60F7328212FAA43 /* Sequencer.swift in Sources */,
+				D1B4825BEDC688C44DB160D8 /* ShakerStack.swift in Sources */,
 				3CA031F6BD568C8A79EA0545 /* SolititoChord.swift in Sources */,
 				2D0EB70E8A0DAD2664F7C363 /* SolititoORT.cpp in Sources */,
 				FAF652F9F495FFDE8134A1D4 /* SongEditorView.swift in Sources */,
@@ -680,6 +693,7 @@
 				77A87004769EE69A71BBE9E0 /* PercussionGenerator.swift in Sources */,
 				1BA0DB2D03106C78E8713599 /* SampleKit.swift in Sources */,
 				F251F8A42BDA877605F7C527 /* Sequencer.swift in Sources */,
+				A36D45E43B8D9DD8855F10B0 /* ShakerStack.swift in Sources */,
 				C06596EB61A9E0169F6E85F6 /* SolititoChord.swift in Sources */,
 				3840BBE4550E09903854AA84 /* SolititoORT.cpp in Sources */,
 				BD9EDB09F626C866FD762335 /* SongEditorView.swift in Sources */,

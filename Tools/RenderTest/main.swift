@@ -1637,6 +1637,41 @@ do {
           "ending: only the tambourine's own ending: \(perc(full, from: 10, to: 12))")
     check(perc(full, from: 12, to: 13) == [0, 0, 0, 0] && state(full, at: 12.5) == .stopped, "percussion stops with the song")
 
+    // Shaker pocket and feel (ShakerStack): the shaker moves against the grid, the other layers stay.
+    // Part A's shaker plays 8ths (every 0.25 s at 120 BPM), the tambourine 2 and 4.
+    do {
+        let humanize = engine.parameter(.humanize)
+        engine.setParameter(.humanize, 0)
+        /// Offsets (ms) of `drum`'s hits from the nearest 8th, between `a` and `b` seconds.
+        func offsets(_ h: Hits, _ drum: Drum, from a: Double, to b: Double) -> [Double] {
+            h.notes.filter { $0.note == drum.gmNote && $0.t >= a && $0.t < b }
+                .map { ($0.t - ($0.t / 0.25).rounded() * 0.25) * 1000 }
+        }
+        func near(_ xs: [Double], _ ms: Double) -> Bool { !xs.isEmpty && xs.allSatisfy { abs($0 - ms) < 1.5 } }
+        let grid = play(sid, seconds: 2.2)
+        check(near(offsets(grid, .shaker, from: 0.1, to: 1.9), 0), "shaker on the grid by default: \(offsets(grid, .shaker, from: 0.1, to: 1.9))")
+        let ahead = play(sid, seconds: 4.2, params: [(0, .shakerPocket, -20)])
+        let early = offsets(ahead, .shaker, from: 0.1, to: 3.9)
+        check(near(early, -20), "pocket -20 ms: the shaker plays 20 ms early: \(early)")
+        check(near(offsets(ahead, .tambourine, from: 0.1, to: 3.9), 0), "the pocket moves only the shaker")
+        check(ahead.notes.contains { $0.note == Drum.shaker.gmNote && $0.t < 0.002 },
+              "ahead of the grid, the first shaker hit still plays at the start")
+        check(count(ahead, .shaker, from: 1.9, to: 2.1) == 1, "ahead: a bar line's hit plays once, just before it")
+        let behind = play(sid, seconds: 2.2, params: [(0, .shakerPocket, 15)])
+        check(near(offsets(behind, .shaker, from: 0.1, to: 1.9), 15), "pocket +15 ms: the shaker plays 15 ms late")
+        engine.setParameter(.shakerPocket, 0)
+        // Push: off-beat 8ths 6 % of a 16th early (7.5 ms at 120 BPM), beats stay.
+        let push = play(sid, seconds: 2.2, params: [(0, .shakerFeel, Float(ShakerFeel.push.rawValue))])
+        let pushed = push.notes.filter { $0.note == Drum.shaker.gmNote && $0.t > 0.1 && $0.t < 1.9 }
+        let onBeat = pushed.filter { abs($0.t * 2 - ($0.t * 2).rounded()) * 500 < 20 }.map { ($0.t - ($0.t * 2).rounded() / 2) * 1000 }
+        let offBeat = pushed.filter { abs($0.t * 2 - ($0.t * 2).rounded()) * 500 >= 20 }
+            .map { ($0.t - ($0.t / 0.25).rounded() * 0.25) * 1000 }
+        check(near(onBeat, 0) && near(offBeat, -7.5), "push: beats on the grid \(onBeat), off-beats early \(offBeat)")
+        engine.setParameter(.shakerFeel, Float(ShakerFeel.grid.rawValue))
+        engine.setParameter(.humanize, humanize)
+        print("Shaker pocket and feel checked")
+    }
+
     // Intro: a layer's own intro plays under it; without one it is silent until the groove.
     let introSong = try store.add(percSong("Perc Intro", intro: hits(.hatClosed, every(480)), parts: 1))
     let introShaker = try store.addPercussion(PercussionData(instrument: .shaker, intro: hits(.shaker, [0, 960]),
@@ -2221,7 +2256,8 @@ do {
 do {
     let layerFiles = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "Extension/Resources/PercKits"),
                                                                     includingPropertiesForKeys: nil)) ?? [])
-        .filter { $0.pathExtension == "pbkit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        .filter { $0.pathExtension == "pbkit" && $0.lastPathComponent.hasPrefix("pedalbeat.layer-") }
+        .sorted { $0.lastPathComponent < $1.lastPathComponent }
     let drumFile = kitFiles.first { $0.lastPathComponent.contains("cajon2") } ?? kitFiles.first
     if layerFiles.isEmpty { print("(no layer kits in Extension/Resources/PercKits: layer-kit checks skipped)") }
     let drumKit = try drumFile.map { try LoadedSampleKit(url: $0) }
@@ -2264,6 +2300,80 @@ do {
     }
     print("Percussion-layer kits checked: \(layerFiles.map(\.lastPathComponent))")
 } catch { check(false, "layer-kit tests threw \(error)") }
+
+// Shaker stack (ShakerStack): strokes, feel, lanes with their own sound, level and pan.
+do {
+    check(!ShakerStack.isBackStroke(tick: 0, dense: true) && ShakerStack.isBackStroke(tick: 120, dense: true)
+          && !ShakerStack.isBackStroke(tick: 240, dense: true) && ShakerStack.isBackStroke(tick: 360, dense: true),
+          "16ths: forward on the 8ths, back in between")
+    check(!ShakerStack.isBackStroke(tick: 0, dense: false) && ShakerStack.isBackStroke(tick: 240, dense: false)
+          && !ShakerStack.isBackStroke(tick: 480, dense: false), "8ths: forward on the beats, back on the ands")
+    check(ShakerStack.isDense(ticks: [0, 240, 360]) && !ShakerStack.isDense(ticks: [0, 240, 480]), "16th detection")
+    check(ShakerStack.feelTicks(tick: 480, feel: .push) == 0 && ShakerStack.feelTicks(tick: 120, feel: .push) == -12
+          && ShakerStack.feelTicks(tick: 240, feel: .laidBack) > 7 && ShakerStack.feelTicks(tick: 120, feel: .grid) == 0,
+          "feel moves off-beats only")
+    check((0..<ShakerStack.laneCount).allSatisfy { lane in
+        [ShakerStack.LaneParameter.source, .level, .pan].allSatisfy { kind in
+            ShakerStack.lane(of: ShakerStack.address(lane: lane, kind)).map { $0.lane == lane && $0.kind == kind } == true
+        }
+    } && ShakerStack.lane(of: .shakerPocket) == nil, "lane parameters map both ways")
+
+    let dir = URL(fileURLWithPath: "Extension/Resources/PercKits")
+    let egg = try LoadedSampleKit(url: dir.appendingPathComponent("pedalbeat.layer-world.pbkit"))
+    let strokes = try LoadedSampleKit(url: dir.appendingPathComponent("pedalbeat.shaker-virtuosity.pbkit"))
+    check(strokes.manifest.isPercussionOnly && strokes.raw.pointee.upShaker.layerCount > 0, "Virtuosity has back strokes")
+    let n = 8192
+    let l = UnsafeMutablePointer<Float>.allocate(capacity: n), r = UnsafeMutablePointer<Float>.allocate(capacity: n)
+    defer { l.deallocate(); r.deallocate() }
+    func energy(_ x: UnsafeMutablePointer<Float>) -> Double { (0..<n).reduce(0) { $0 + Double(x[$1] * x[$1]) } }
+    func stack(_ sources: [ShakerSource], pans: [Float] = [0, 0, 0], levels: [Float] = [1, 1, 1], width: Float = 1,
+               back: Bool = false, kits: [LoadedSampleKit?] = [nil, nil, nil]) -> Bool {
+        let s = Sampler()
+        s.setSampleRate(44100)
+        s.laneSource = sources.map(\.rawValue); s.lanePan = pans; s.laneGain = levels; s.shakerWidth = width
+        for (i, k) in kits.enumerated() { s.setLaneKit(i, bits: k?.bits ?? 0) }
+        l.update(repeating: 0, count: n); r.update(repeating: 0, count: n)
+        let played = s.triggerShaker(velocity: 1, delay: 0, back: back)
+        s.render(left: l, right: r, frames: n)
+        return played
+    }
+    // Two lanes panned apart (mono each): the egg only left, Virtuosity only right.
+    let both = stack([.worldEgg, .virtuosity, .off], pans: [-1, 1, 0], width: 0, kits: [egg, strokes, nil])
+    let (bl, br) = (energy(l), energy(r))
+    _ = stack([.worldEgg, .off, .off], pans: [-1, 1, 0], width: 0, kits: [egg, strokes, nil])
+    check(both && bl > 0 && br > 0 && energy(r) == 0 && abs(energy(l) - bl) < bl * 1e-6,
+          "two lanes play at once, each on its side; lane 2 off silences the right")
+    _ = stack([.worldEgg, .off, .off], levels: [0.5, 1, 1], kits: [egg, nil, nil])
+    let half = energy(l)
+    _ = stack([.worldEgg, .off, .off], kits: [egg, nil, nil])
+    check(abs(half / energy(l) - 0.25) < 0.01, "lane level scales the lane: \(half / energy(l))")
+    // Strokes: a back stroke plays one of the back-stroke takes, a forward stroke one of the forward ones.
+    func matches(_ d: SDrum, _ k: SampleKitRaw) -> Double {
+        var best = 0.0
+        for li in 0..<d.layerCount {
+            let lay = k.layers[d.firstLayer + li]
+            for ri in lay.first..<(lay.first + lay.count) {
+                let reg = k.regions[ri], m = min(n, reg.length - 2)
+                var xy = 0.0, xx = 0.0, yy = 0.0
+                for i in 0..<m { let x = Double(k.audio[(reg.start + i) * 2]), y = Double(l[i]); xy += x * y; xx += x * x; yy += y * y }
+                if xx > 0 && yy > 0 { best = max(best, xy / (xx * yy).squareRoot()) }
+            }
+        }
+        return best
+    }
+    let raw = strokes.raw.pointee
+    _ = stack([.virtuosity, .off, .off], back: true, kits: [strokes, nil, nil])
+    let backTake = (matches(raw.upShaker, raw), matches(raw.drums[Drum.shaker.rawValue], raw))
+    _ = stack([.virtuosity, .off, .off], back: false, kits: [strokes, nil, nil])
+    let fwdTake = (matches(raw.upShaker, raw), matches(raw.drums[Drum.shaker.rawValue], raw))
+    check(backTake.0 > 0.999 && backTake.1 < 0.9 && fwdTake.1 > 0.999 && fwdTake.0 < 0.9,
+          "back strokes play back-stroke takes, forward strokes forward ones: \(backTake) \(fwdTake)")
+    _ = stack([.worldEgg, .off, .off], back: true, kits: [egg, nil, nil])
+    check(energy(l) > 0, "a kit without back strokes plays its shaker for them")
+    check(stack([.off, .off, .off]) && energy(l) == 0, "every lane off: silence, no synth shaker")
+    check(!stack([.worldEgg, .off, .off]), "a lane whose kit is still loading lets the synth stand in")
+    print("Shaker stack checked")
+} catch { check(false, "shaker stack tests threw \(error)") }
 
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

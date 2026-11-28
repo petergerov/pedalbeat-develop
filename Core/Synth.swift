@@ -293,11 +293,15 @@ public final class DrumSynth {
 
     /// Schedules a hit `delay` samples from the start of the next render call. `gain` scales its
     /// level without changing the velocity's tone (percussion layer level).
-    /// `layer` uses the percussion-layer kit when one is selected.
-    public func trigger(_ drumIndex: Int, velocity: Float, delay: Int, gain: Float = 1, layer: Bool = false) {
+    /// `layer` uses the percussion-layer kit when one is selected; a layer shaker plays through the
+    /// shaker stack (`back` = back stroke).
+    public func trigger(_ drumIndex: Int, velocity: Float, delay: Int, gain: Float = 1, layer: Bool = false,
+                        back: Bool = false) {
         guard drumIndex >= 0 && drumIndex < Drum.count else { return }
         // Sampled kit first; drums it lacks fall back to the synth.
-        if layer {
+        if layer && drumIndex == Drum.shaker.rawValue {
+            if sampler.triggerShaker(velocity: velocity, delay: delay, gain: gain, back: back) { return }
+        } else if layer {
             if sampler.triggerLayer(drumIndex, velocity: velocity, delay: delay, gain: gain) { return }
         } else if sampler.trigger(drumIndex, velocity: velocity, delay: delay, gain: gain) { return }
         let k = min(max(kit, 0), kitCount - 1)

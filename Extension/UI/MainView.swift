@@ -718,7 +718,7 @@ struct KitMenu: View {
             Section("Synthesized") {
                 ForEach(0..<Kits.all.count, id: \.self) { i in kitButton(i, Kits.names[i]) }
             }
-            let drumKits = model.sampleKits.filter { $0.manifest.category != "layer" }
+            let drumKits = model.sampleKits.filter { !$0.manifest.isPercussionOnly }
             if !drumKits.isEmpty {
                 Section("Sampled") {
                     ForEach(drumKits, id: \.id) { k in
@@ -1346,11 +1346,91 @@ struct PercussionSection: View {
                 .font(.caption)
                 .toggleStyle(.switch)
                 .controlSize(.mini)
+                if model.percInstruments[PercussionInstrument.shaker.rawValue] {
+                    ShakerStackPanel(model: model)
+                }
             }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.panelHi.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// Shaker stack: up to three shaker sounds on the shaker part, each with level and pan, plus its
+/// pocket, feel and stereo width.
+private struct ShakerStackPanel: View {
+    @ObservedObject var model: PedalViewModel
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Text("Shaker").font(.caption.weight(.bold)).foregroundStyle(Theme.dim)
+                Picker("Feel", selection: Binding(get: { model.shakerFeel }, set: { model.setShakerFeel($0) })) {
+                    ForEach(ShakerFeel.allCases) { Text($0.name).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Grid: on the beat. Push: off-beats a little early, driving. Laid Back: off-beats a little late, relaxed.")
+                Spacer(minLength: 0)
+            }
+            ForEach(0..<ShakerStack.laneCount, id: \.self) { lane in
+                ShakerLaneRow(model: model, lane: lane)
+            }
+            HStack(spacing: 14) {
+                LabeledSlider(title: "Pocket", value: Binding(get: { model.shakerPocket }, set: { model.setShakerPocket($0) }),
+                              range: Double(ShakerStack.pocketRange.lowerBound)...Double(ShakerStack.pocketRange.upperBound),
+                              format: { v in v == 0 ? "On the grid" : "\(Int(abs(v))) ms \(v < 0 ? "ahead" : "behind")" })
+                    .frame(maxWidth: 200)
+                    .help("Moves the whole shaker earlier (ahead, driving) or later (behind, laid back) against the drums")
+                LabeledSlider(title: "Width", value: Binding(get: { model.shakerWidth }, set: { model.setShakerWidth($0) }),
+                              range: Double(ShakerStack.widthRange.lowerBound)...Double(ShakerStack.widthRange.upperBound),
+                              format: { "\(Int(($0 * 100).rounded()))%" })
+                    .frame(maxWidth: 160)
+                    .help("Stereo width of the shaker sounds: 0% mono, 100% as recorded")
+                Spacer(minLength: 0)
+            }
+        }
+        .font(.caption)
+        .padding(.top, 2)
+    }
+}
+
+/// One lane of the shaker stack: its sound, and when on its level and pan.
+private struct ShakerLaneRow: View {
+    @ObservedObject var model: PedalViewModel
+    let lane: Int
+    var body: some View {
+        let source = model.shakerSources[lane]
+        HStack(spacing: 14) {
+            Menu {
+                ForEach(model.availableShakerSources) { s in
+                    Button { model.setShakerSource(lane, s) } label: {
+                        if s == source { Label(s.name, systemImage: "checkmark") } else { Text(s.name) }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text("\(lane + 1)").monospacedDigit().foregroundStyle(Theme.dim)
+                    Text(source.name).lineLimit(1)
+                }
+                .font(.caption)
+                .frame(width: 150, alignment: .leading)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .fixedSize()
+            .help("Sound of shaker \(lane + 1). Perc Kit = the shaker of the Percussion Kit; Virtuosity plays forward and back strokes.")
+            if source != .off {
+                LabeledSlider(title: "Level", value: Binding(get: { model.shakerLevels[lane] }, set: { model.setShakerLevel(lane, $0) }),
+                              range: 0...1.5, format: { "\(Int($0 * 100))%" })
+                    .frame(maxWidth: 140)
+                LabeledSlider(title: "Pan", value: Binding(get: { model.shakerPans[lane] }, set: { model.setShakerPan(lane, $0) }),
+                              range: -1...1, format: { v in abs(v) < 0.02 ? "C" : (v < 0 ? "L" : "R") + "\(Int((abs(v) * 100).rounded()))" })
+                    .frame(maxWidth: 120)
+            }
+            Spacer(minLength: 0)
+        }
     }
 }
 

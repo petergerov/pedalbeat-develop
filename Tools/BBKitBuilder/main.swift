@@ -37,6 +37,9 @@ struct BBInstrument: Decodable {
     var midi: Int
     var volume: Int
     var samples: [BBSample]
+    /// Manifest key that is not a PedalBeat voice of its own, e.g. "shakerUp" (`KitManifest.shakerUpKey`,
+    /// a shaker's back strokes). Such an instrument skips the MIDI mapping.
+    var key: String?
 }
 
 struct BBSample: Decodable {
@@ -118,7 +121,7 @@ func pickInstruments(_ kit: BBKit) -> [(Drum, BBInstrument)] {
     var byDrum: [Drum: BBInstrument] = [:]
     var sweep: BBInstrument?
 
-    for inst in kit.instruments {
+    for inst in kit.instruments where inst.key == nil {
         if isLongSweep(inst.name) {
             if sweep == nil { sweep = inst }
             continue
@@ -254,6 +257,7 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
 
     struct Pending {
         var drum: Drum
+        var key: String
         var layers: [(hi: Int, regions: [(start: Int, length: Int, peak: Float)])]
         var volume: Float
         var sweep: Bool
@@ -262,7 +266,9 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
     var kitPeak: Float = 0
     let kitVol = Float(kit.volume) / 100
 
-    for (drum, inst) in picked {
+    // Extra keys play like the voice they belong to (back strokes like the shaker).
+    let extras = kit.instruments.compactMap { inst in inst.key.map { (Drum.shaker, $0, inst) } }
+    for (drum, key, inst) in picked.map({ ($0.0, $0.0.key, $0.1) }) + extras {
         let sweep = drum == .brushSweep
         // Group samples by velocity range, preserve file order as round-robins.
         var groups: [VelRange: [BBSample]] = [:]
@@ -308,7 +314,7 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
             }
         }
         guard !layers.isEmpty else {
-            print("  ! \(drum.key): no samples")
+            print("  ! \(key): no samples")
             continue
         }
         // Last layer must reach 127.
@@ -316,10 +322,10 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
 
         let vol = (Float(inst.volume) / 100) * kitVol
         if drum == .kick || drum == .snare { kitPeak = max(kitPeak, drumPeak * vol) }
-        pending.append(Pending(drum: drum, layers: layers, volume: vol, sweep: sweep))
+        pending.append(Pending(drum: drum, key: key, layers: layers, volume: vol, sweep: sweep))
         let lens = layers.flatMap { $0.1.map { Double($0.1) / outRate } }
         print(String(format: "  %-11@ midi %3d  layers %@  rr %d  peak %5.1f dB  len %.2f-%.2fs  vol %.2f",
-                     drum.key, inst.midi,
+                     key, inst.midi,
                      layers.map { String($0.0) }.joined(separator: "/"),
                      layers.map { $0.1.count }.max() ?? 0,
                      dB(drumPeak), lens.min() ?? 0, lens.max() ?? 0, vol))
@@ -335,7 +341,7 @@ func build(kitDir: URL, outRate: Double = 44100, targetPeak: Float = 0.95, maxRR
                 KitManifest.Region(start: $0.start, length: $0.length, gain: $0.peak * norm)
             }))
         }
-        drums[p.drum.key] = KitManifest.DrumMap(volume: p.volume, pan: 0, layers: layers,
+        drums[p.key] = KitManifest.DrumMap(volume: p.volume, pan: 0, layers: layers,
                                                 sweep: p.sweep ? true : nil)
     }
 

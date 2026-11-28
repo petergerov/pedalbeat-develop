@@ -35,10 +35,19 @@ final class PedalViewModel: ObservableObject {
     @Published var percInstruments = [Bool](repeating: true, count: PercussionInstrument.count)
     /// Auto Percussion: beats without percussion of their own play generated layers (default off).
     @Published var percAuto = false
-    /// Sample kit for percussion layers (Drum Kit / FreePats / World / Body).
+    /// Sample kit for percussion layers (Drum Kit / FreePats / World).
     @Published var percKit: PercLayerKit = .drumKit
     /// Layer kits that are installed and can be selected.
     @Published var availablePercKits: [PercLayerKit] = PercLayerKit.allCases
+    /// Shaker stack (`ShakerStack`): per lane its sound, level and pan; pocket (ms), feel and width.
+    @Published var shakerSources = ShakerStack.defaultSources
+    @Published var shakerLevels = ShakerStack.defaultLevels.map(Double.init)
+    @Published var shakerPans = ShakerStack.defaultPans.map(Double.init)
+    @Published var shakerPocket = 0.0
+    @Published var shakerFeel = ShakerFeel.grid
+    @Published var shakerWidth = 1.0
+    /// Shaker sounds whose kits are installed.
+    @Published var availableShakerSources = ShakerSource.allCases
     /// Imported layers per instrument.
     @Published var percussionCounts: [PercussionInstrument: Int] = [:]
     @Published var importMessage: String?
@@ -137,6 +146,14 @@ final class PedalViewModel: ObservableObject {
         percInstruments = PercussionInstrument.allCases.map { engine.parameter($0.parameter) >= 0.5 }
         percAuto = engine.parameter(.percAuto) >= 0.5
         percKit = PercLayerKit(rawValue: Int(engine.parameter(.percKit))) ?? .drumKit
+        for lane in 0..<ShakerStack.laneCount {
+            shakerSources[lane] = ShakerSource(rawValue: Int(engine.parameter(ShakerStack.address(lane: lane, .source)))) ?? .off
+            shakerLevels[lane] = Double(engine.parameter(ShakerStack.address(lane: lane, .level)))
+            shakerPans[lane] = Double(engine.parameter(ShakerStack.address(lane: lane, .pan)))
+        }
+        shakerPocket = Double(engine.parameter(.shakerPocket))
+        shakerFeel = ShakerFeel(rawValue: Int(engine.parameter(.shakerFeel))) ?? .grid
+        shakerWidth = Double(engine.parameter(.shakerWidth))
         selectedSong = Int(engine.parameter(.song))
     }
 
@@ -161,6 +178,39 @@ final class PedalViewModel: ObservableObject {
         percKit = choice
         set(.percKit, Double(choice.rawValue))
         kitLoading = au.kits.isLoading
+    }
+
+    // MARK: Shaker stack
+
+    func setShakerSource(_ lane: Int, _ source: ShakerSource) {
+        shakerSources[lane] = source
+        set(ShakerStack.address(lane: lane, .source), Double(source.rawValue))
+        kitLoading = au.kits.isLoading
+    }
+
+    func setShakerLevel(_ lane: Int, _ v: Double) {
+        shakerLevels[lane] = min(max(v, 0), 1.5)
+        set(ShakerStack.address(lane: lane, .level), shakerLevels[lane])
+    }
+
+    func setShakerPan(_ lane: Int, _ v: Double) {
+        shakerPans[lane] = min(max(v, -1), 1)
+        set(ShakerStack.address(lane: lane, .pan), shakerPans[lane])
+    }
+
+    func setShakerPocket(_ ms: Double) {
+        shakerPocket = ms.rounded()
+        set(.shakerPocket, shakerPocket)
+    }
+
+    func setShakerFeel(_ feel: ShakerFeel) {
+        shakerFeel = feel
+        set(.shakerFeel, Double(feel.rawValue))
+    }
+
+    func setShakerWidth(_ v: Double) {
+        shakerWidth = v
+        set(.shakerWidth, v)
     }
 
     func setPercussion(_ inst: PercussionInstrument, on: Bool) {
@@ -395,6 +445,7 @@ final class PedalViewModel: ObservableObject {
         sampleKits = au.kits.kits
         kitNames = au.kits.allKitNames
         availablePercKits = au.kits.availablePercLayerKits
+        availableShakerSources = au.kits.availableShakerSources
         kitLoading = au.kits.isLoading
         if let e = au.kits.loadError, e != shownKitError {
             shownKitError = e
