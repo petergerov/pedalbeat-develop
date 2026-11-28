@@ -1,0 +1,280 @@
+name: PedalBeat
+options:
+  bundleIdPrefix: com.pedalbeat
+  deploymentTarget:
+    macOS: "15.0"
+    iOS: "18.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: C9LBGZNZ6P
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+    DEAD_CODE_STRIPPING: YES
+
+targetTemplates:
+  AUExtension:
+    type: app-extension
+    sources:
+      - path: Core
+        excludes:
+          - BassFollow/SolititoORT.cpp
+          - BassFollow/SolititoORT.h
+          - PedalBeat-Bridging-Header.h
+      - path: Extension
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+          - Resources
+    settings:
+      base:
+        SWIFT_OPTIMIZATION_LEVEL: "-O"
+        SWIFT_COMPILATION_MODE: wholemodule
+        SKIP_INSTALL: YES
+    info:
+      path: Extension/Info.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        NSBluetoothAlwaysUsageDescription: "Connect Bluetooth MIDI pedals and keyboards in MIDI Settings."
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.AudioUnit-UI
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+          NSExtensionAttributes:
+            AudioComponents:
+              - name: "PedalBeat: PedalBeat Drums"
+                description: "Pedal-style drum machine"
+                manufacturer: PdBt
+                type: aumu
+                subtype: pdbt
+                # Bump on bus / channel-capability changes so Logic re-validates the AU.
+                version: 65537
+                sandboxSafe: true
+                factoryFunction: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+                tags:
+                  - Drums
+                  - Synthesizer
+              # Music Effect: channel strip audio on input bus 0, Logic Side Chain on input bus 1.
+              - name: "PedalBeat: PedalBeat Drums FX"
+                description: "PedalBeat with guitar audio input for Bass Follow (beta)"
+                manufacturer: PdBt
+                type: aumf
+                subtype: pdbf
+                version: 65537
+                sandboxSafe: true
+                factoryFunction: $(PRODUCT_MODULE_NAME).AudioUnitViewController
+                tags:
+                  - Drums
+                  - Effect
+
+
+schemes:
+  PedalBeat-macOS:
+    build:
+      targets:
+        PedalBeat-macOS: all
+        PedalBeatAU-macOS: [build]
+    run:
+      config: Debug
+    profile:
+      config: Release
+    archive:
+      config: Release
+  PedalBeat-iOS:
+    build:
+      targets:
+        PedalBeat-iOS: all
+        PedalBeatAU-iOS: [build]
+    run:
+      config: Release
+    profile:
+      config: Release
+    archive:
+      config: Release
+
+targets:
+  PedalBeat-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+    dependencies:
+      - target: PedalBeatAU-macOS
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeat
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    entitlements:
+      path: App/PedalBeat-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.usb: true
+        # Songs and kits the PedalBeat installers put in place (InstalledContent).
+        com.apple.security.temporary-exception.files.absolute-path.read-only:
+          - "/Library/Application Support/PedalBeat/"
+    info:
+      path: App/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        LSApplicationCategoryType: public.app-category.music
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        NSMicrophoneUsageDescription: "PedalBeat doesn't record audio; this is required by the audio engine."
+
+  PedalBeatAU-macOS:
+    templates: [AUExtension]
+    platform: macOS
+    sources:
+      - path: Core/BassFollow/SolititoORT.cpp
+      - path: Core/BassFollow/SolititoORT.h
+        buildPhase: none
+    dependencies:
+      - framework: ThirdParty/onnxruntime/lib/libonnxruntime.dylib
+        embed: true
+        codeSign: true
+    postCompileScripts:
+      # Shared with PedalBeatAU-iOS (*embedSolitito).
+      - &embedSolitito
+        name: Embed Solitito Assets
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/Extension/Resources/Solitito/best_model_v2_take6_chords.onnx
+          - $(SRCROOT)/Extension/Resources/Solitito/dsp_weights.json
+          - $(SRCROOT)/Extension/Resources/Solitito/LICENSE
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Solitito/best_model_v2_take6_chords.onnx
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Solitito/dsp_weights.json
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Solitito/LICENSE
+        script: |
+          set -euo pipefail
+          SRC="${SRCROOT}/Extension/Resources/Solitito"
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Solitito"
+          mkdir -p "${DEST}"
+          cp -f "${SRC}/best_model_v2_take6_chords.onnx" "${SRC}/dsp_weights.json" "${SRC}/LICENSE" "${DEST}/"
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeatAU
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app.au
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        PROVISIONING_PROFILE_SPECIFIER: ""
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_OBJC_BRIDGING_HEADER: Core/PedalBeat-Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(inherited) ThirdParty/onnxruntime/include Core Core/BassFollow
+        LIBRARY_SEARCH_PATHS: $(inherited) ThirdParty/onnxruntime/lib
+        OTHER_LDFLAGS: $(inherited) -lonnxruntime -lc++
+        LD_RUNPATH_SEARCH_PATHS: $(inherited) @loader_path/../Frameworks @executable_path/../Frameworks
+        CLANG_CXX_LANGUAGE_STANDARD: c++17
+    entitlements:
+      path: Extension/PedalBeatAU-macOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-only: true
+        # Songs and kits the PedalBeat installers put in place (InstalledContent).
+        com.apple.security.temporary-exception.files.absolute-path.read-only:
+          - "/Library/Application Support/PedalBeat/"
+
+  PedalBeat-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "Info-*.plist"
+          - "*.entitlements"
+    dependencies:
+      - target: PedalBeatAU-iOS
+        embed: true
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeat
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: YES
+    info:
+      path: App/Info-iOS.plist
+      properties:
+        CFBundleDisplayName: PedalBeat
+        UILaunchScreen: {}
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.pedalbeat.kit
+            UTTypeDescription: PedalBeat Drum Kit
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [pbkit]
+        UIBackgroundModes: [audio]
+        NSBluetoothAlwaysUsageDescription: "Connect Bluetooth MIDI pedals and keyboards in MIDI Settings."
+        UIRequiresFullScreen: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+  PedalBeatAU-iOS:
+    templates: [AUExtension]
+    platform: iOS
+    sources:
+      - path: Core/BassFollow/SolititoORT.cpp
+      - path: Core/BassFollow/SolititoORT.h
+        buildPhase: none
+    dependencies:
+      # Static ONNX Runtime from Tools/fetch-solitito.sh: linked into the extension, nothing to embed.
+      - framework: ThirdParty/onnxruntime/ios/onnxruntime.xcframework
+        embed: false
+    postCompileScripts:
+      - *embedSolitito
+      - name: Embed Song Pack
+        basedOnDependencyAnalysis: false
+        script: |
+          set -euo pipefail
+          # Songs that ship with PedalBeat, both built by Tools/build-songpack.sh: MIDI Songs (own drums, bass,
+          # percussion) and bb Songs (the bb beats and the songs' bb versions).
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Content"
+          mkdir -p "${DEST}"
+          for SRC in "${SRCROOT}/Extension/Resources/Content/SongPack.pbcp" "${SRCROOT}/build/content/bb Songs.pbcp"; do
+            if [[ -f "${SRC}" ]]; then
+              cp -f "${SRC}" "${DEST}/"
+            else
+              rm -f "${DEST}/$(basename "${SRC}")"
+              echo "warning: ${SRC} is missing, so it is not built in (run Tools/build-songpack.sh)"
+            fi
+          done
+    settings:
+      base:
+        PRODUCT_NAME: PedalBeatAU
+        PRODUCT_BUNDLE_IDENTIFIER: com.pedalbeat.app.au
+        CODE_SIGN_STYLE: Automatic
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_OBJC_BRIDGING_HEADER: Core/PedalBeat-Bridging-Header.h
+        HEADER_SEARCH_PATHS: $(inherited) ThirdParty/onnxruntime/include Core Core/BassFollow
+        OTHER_LDFLAGS: $(inherited) -lc++
+        CLANG_CXX_LANGUAGE_STANDARD: c++17

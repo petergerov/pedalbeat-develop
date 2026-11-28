@@ -1,0 +1,30 @@
+#!/bin/bash
+# PedalBeat uninstaller, optional part: the signed-in user's own PedalBeat data, i.e. imported songs,
+# beats and kits, mixes and settings. They live in the sandbox containers of the app and the plug-in.
+#
+# Runs as root from the uninstaller .pkg; $3 is the target volume ("/"). Another target (a test folder)
+# removes the files below it only.
+set -u
+
+TARGET="${3:-/}"
+TARGET="${TARGET%/}"
+USER_NAME="${PEDALBEAT_UNINSTALL_USER:-$(stat -f%Su /dev/console 2>/dev/null)}"
+if [[ -z "${USER_NAME}" || "${USER_NAME}" == "root" ]]; then
+  echo "No signed-in user: user data kept"
+  exit 0
+fi
+HOME_DIR="$(dscl . -read "/Users/${USER_NAME}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')"
+[[ -n "${TARGET}" ]] && HOME_DIR="/Users/${USER_NAME}"
+if [[ -z "${HOME_DIR}" ]]; then
+  echo "No home folder for ${USER_NAME}: user data kept"
+  exit 0
+fi
+
+for bundle in com.pedalbeat.app com.pedalbeat.app.au; do
+  dir="${TARGET}${HOME_DIR}/Library/Containers/${bundle}"
+  if [[ -d "${dir}" ]]; then
+    # macOS may protect app containers; what can't be removed stays.
+    rm -rf "${dir}" 2>/dev/null && echo "Removed ${dir}" || echo "Could not remove ${dir}"
+  fi
+done
+exit 0

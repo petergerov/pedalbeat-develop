@@ -1,0 +1,20 @@
+tmp/
+.idea/
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.DS_Store
+# RenderTest demo dumps (must not live in repo root)
+/*.wav
+/*.mp3
+# Large Solitito / ONNX Runtime binaries — restore with Tools/fetch-solitito.sh
+ThirdParty/Solitito/*.onnx
+ThirdParty/onnxruntime/lib/
+ThirdParty/onnxruntime/ios/
+Extension/Resources/Solitito/*.onnx
+
+__pycache__/
+
+# Built-in song pack — rebuild with Tools/build-songpack.sh (needs the data in ../pedalbeat-data)
+Extension/Resources/Content/*.pbcp

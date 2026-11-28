@@ -1,0 +1,42 @@
+#!/bin/bash
+# PedalBeat uninstaller: removes what the PedalBeat installers put in place.
+#   /Applications/PedalBeat.app (only if it is PedalBeat: bundle id com.pedalbeat.app)
+#   /Library/Application Support/PedalBeat (installed songs and kits)
+# and forgets the installers' receipts. The user's own imports and settings stay (see ../userdata).
+#
+# Runs as root from the uninstaller .pkg; $3 is the target volume ("/"). Another target (a test folder)
+# removes the files below it only.
+set -u
+
+TARGET="${3:-/}"
+TARGET="${TARGET%/}"
+APP="${TARGET}/Applications/PedalBeat.app"
+CONTENT="${TARGET}/Library/Application Support/PedalBeat"
+
+if [[ -z "${TARGET}" ]]; then
+  pkill -x PedalBeat >/dev/null 2>&1 || true
+fi
+
+if [[ -d "${APP}" ]]; then
+  id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "${APP}/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ "${id}" == "com.pedalbeat.app" ]]; then
+    rm -rf "${APP}"
+    echo "Removed ${APP}"
+  else
+    echo "Kept ${APP}: not PedalBeat (${id:-no bundle id})"
+  fi
+fi
+
+if [[ -d "${CONTENT}" ]]; then
+  rm -rf "${CONTENT}"
+  echo "Removed ${CONTENT}"
+fi
+
+if [[ -z "${TARGET}" ]]; then
+  for pkg in app midisongs bbsongs kits bbkits; do
+    pkgutil --forget "com.pedalbeat.pkg.${pkg}" >/dev/null 2>&1 || true
+  done
+  # Hosts list Audio Units from this cache: drop PedalBeat from it.
+  killall -9 AudioComponentRegistrar >/dev/null 2>&1 || true
+fi
+exit 0

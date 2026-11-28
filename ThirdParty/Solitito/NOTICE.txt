@@ -1,0 +1,145 @@
+---
+license: mit
+tags:
+- audio
+- audio-classification
+- chord-recognition
+- onset-detection
+- guitar
+- onnx
+- rust
+library_name: ort
+---
+
+# Solitito — guitar chord and note recognition
+
+Recognition models for [**Solitito**](https://github.com/greblus/solitito), a
+real-time guitar trainer written in Rust. Code, the trainer and documentation
+are in the GitHub repository; this repository holds the binary artifacts the
+app needs.
+
+<div align="center">
+<img width="640" alt="Solitito, Chords mode: shell voicings, one column per root string" src="https://raw.githubusercontent.com/greblus/solitito/solitito-ai/docs/screenshots/en/solitito_chords.png" />
+</div>
+
+| file | |
+|---|---|
+| `best_model_v2_take6_chords.onnx` | the recognition model: what is sounding, the root and the chord quality, 29 MB |
+| `short_onset_masking_v2.onnx` | the strike model: which pitch class was just **struck**, 1 MB |
+| `dsp_weights.json` | pseudo-CQT kernel in sparse format, 2 MB |
+
+## The recognition model
+
+Takes 48 frames of features (144 CQT bins + 12 chroma + 12 bass energy, 16 kHz,
+256-sample hop — 0.77 s of audio) and returns three outputs:
+
+| output | shape | meaning |
+|---|---|---|
+| `root_logits` | 13 | 12 pitch classes + "Noise" |
+| `quality_logits` | 11 | maj, min, maj7, dom7, min7, m7b5, dim7, aug, sus, note, N |
+| `pitch_logits` | 12 | sigmoid — which pitch classes are sounding |
+
+"Sounding" includes a string ringing on, one resonating in sympathy, and the
+note before — all of them true and none of them played just now. What was
+actually struck is the strike model's question, below.
+
+CNN with Squeeze-and-Excitation blocks, then a Transformer encoder with a CLS
+token. 7.3M parameters, CPU inference.
+
+### Results
+
+Measured on a validation split grouped by source recording, with solo tracks
+excluded:
+
+| metric | |
+|---|---|
+| root accuracy | 98.1% |
+| pitch F1 | 0.909 |
+| exact match (root **and** quality) | 92.4% |
+
+## The strike model
+
+The recognition model sees 0.77 s at a time and is asked every 40 ms; that is
+too coarse to tell whether a note that is already ringing was just struck
+again. The strike model answers only that question, on every 16 ms hop:
+
+| | |
+|---|---|
+| input `short_features` | `[batch, 770, time]` — two Hann windows of the newest audio (1024 and 2048 samples at 16 kHz), magnitudes up to 4 kHz, `ln(1 + 1000·a) / ln(1001)` |
+| output `onset_logits` | `[batch, 12, time]` — sigmoid per pitch class: struck at this frame |
+| context | causal; 34 past frames plus the current one (0.56 s) |
+| metadata | `onset_threshold` = 0.9, `onset_history_frames` = 34 |
+
+A projection of the spectra and of their rise against the previous four
+frames, then four residual causal convolutions (dilations 1, 2, 4, 8).
+260 thousand parameters; 0.7 ms per hop on a CPU.
+
+It was trained as a branch beside the frozen recognition network and is cut out
+of that combined file, so it does not run the chord network on every hop. The
+branch never reads the chord input: its answer is identical to the last digit
+whatever the other input is.
+
+The app uses it for everything that depends on what was **struck** rather than
+what is sounding: "Credit only what was struck" in the note modes (a class may be
+credited only if the model reported it struck in the last 0.35 s), a chord asked
+for twice in a row (it needs a fresh strike), and **repeats** — a note credited
+once counts again only when that pitch class has been struck since, not when it
+is merely still sounding. The app evens out the input level before the model and
+ignores a second firing of the same class within 0.6 s. Measured on every reviewed note
+of a labelled recording, spliced into new signals (the note alone, ringing out,
+and struck again with the pick stopping the old vibration):
+
+| | without the strike model | with |
+| --- | --- | --- |
+| a repeat allowed while the note only rings | 24 / 51 | **0** / 51 |
+| struck again after 0.8 s, counted in time | 36 / 51, 11 early | **48** / 51, none early |
+| struck again after 1.2 s, counted in time | 35 / 51, 14 early | **50** / 51, none early |
+| a note ringing into the next chord, credited there | 47 / 51 | **0** / 51 |
+
+### Training data
+
+GuitarSet whole takes (solo and comp, players split whole: 00–03 train, 04
+validation, 05 test), Karplus–Strong synthetic plucks with exact attack times
+(holds, re-plucks of a ringing note, octaves, an added third or fifth, re-struck
+triads), and masking pairs: a quieter upper note struck over two ringing ones
+at −18, −12, −6 or 0 dB, each with its background alone and itself alone.
+Levels vary by ±6 dB in training.
+
+## Training
+
+Each model has its own trainer in `dist/` of the GitHub repository, one file to
+paste into a Kaggle GPU notebook: `model_trainer.py` for the recognition model
+(it writes `best_model_v2_take6_chords.onnx`), `strike_trainer.py` for
+the strike model, whose defaults are the recipe of `short_onset_masking_v2.onnx`.
+See `docs/training.md` there.
+
+## Using it
+
+Put the files next to the Solitito binary; the release packages already
+contain them. `SOLITITO_MODEL` points the app at another recognition model
+file. The strike model is optional: without it the app still
+starts and judges repeats on a pitch-blind attack detector. `./solitito --check` verifies
+what is there and prints the strike model's threshold.
+
+Feeding these models your own features requires matching the DSP exactly — the
+input is not raw audio. For the recognition model, `dist/gen_weights.py` in the
+GitHub repository produces the kernel, and `dsp_weights.json` here is its output.
+For the strike model, `src/strike.rs` (`ShortFeatures`) and the trainer compute
+the same features, and a shared test fixture holds them to the same numbers.
+
+## Training data of the recognition model
+
+Two sources: a synthetic set rendered through [NAM](https://www.neuralampmodeler.com/)
+amp models with exact labels, and [GuitarSet](https://guitarset.weebly.com/) for
+real playing.
+
+Getting GuitarSet right took four runs. Half of it is `_solo` — monophonic
+improvisation carrying the accompaniment's chord annotation — and its
+`instructed` chord labels contain no `maj7` or `min7` at all, while calling 500
+segments `m` that were played as `m7`. Fixing those two moved exact match from
+44.8% to 92.4%. The details, with numbers, are in the GitHub README.
+
+## License
+
+MIT. GuitarSet is CC BY 4.0 — Qingyang Xi, Rachel M. Bittner, Johan Pauwels,
+Xuzhou Ye & Juan P. Bello, <https://guitarset.weebly.com/>.
