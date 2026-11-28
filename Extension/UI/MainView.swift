@@ -702,15 +702,6 @@ struct ControlsRow: View {
                     .help("Open the mixer for this song — per-voice levels, stored with the song")
             }
             KitMenu(model: model)
-            if let s = model.currentSong {
-                let suggested = model.suggestedKit(for: s)
-                if suggested != model.kit && model.kitNames.indices.contains(suggested) {
-                    Button("Use \(model.kitNames[suggested])") { model.selectKit(suggested) }
-                        .font(.caption)
-                        .buttonStyle(PanelButtonStyle())
-                        .help("Suggested kit for this song")
-                }
-            }
         }
     }
 }
@@ -727,10 +718,13 @@ struct KitMenu: View {
             Section("Synthesized") {
                 ForEach(0..<Kits.all.count, id: \.self) { i in kitButton(i, Kits.names[i]) }
             }
-            if !model.sampleKits.isEmpty {
+            let drumKits = model.sampleKits.filter { $0.manifest.category != "layer" }
+            if !drumKits.isEmpty {
                 Section("Sampled") {
-                    ForEach(Array(model.sampleKits.enumerated()), id: \.element.id) { j, k in
-                        kitButton(Kits.all.count + j, k.name)
+                    ForEach(drumKits, id: \.id) { k in
+                        if let idx = model.sampleKits.firstIndex(where: { $0.id == k.id }) {
+                            kitButton(Kits.all.count + idx, k.name)
+                        }
                     }
                 }
             }
@@ -1332,6 +1326,7 @@ struct PercussionSection: View {
                     .controlSize(.mini)
                     .fixedSize()
                     .help("Beats without percussion of their own play generated shaker, tambourine, maracas or clap, following their hi-hats and backbeats.")
+                    PercKitMenu(model: model)
                 }
                 Spacer(minLength: 4)
                 PercussionSummary(here: here, auto: model.currentPercussionIsAuto, anyImported: model.hasPercussionImports)
@@ -1356,6 +1351,36 @@ struct PercussionSection: View {
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.panelHi.opacity(0.55), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// Sample kit for percussion-layer hits (independent of the drum kit).
+private struct PercKitMenu: View {
+    @ObservedObject var model: PedalViewModel
+    var body: some View {
+        Menu {
+            ForEach(model.availablePercKits) { choice in
+                Button {
+                    model.setPercKit(choice)
+                } label: {
+                    if choice == model.percKit {
+                        Label(choice.name, systemImage: "checkmark")
+                    } else {
+                        Text(choice.name)
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "waveform")
+                Text(model.percKit.name).lineLimit(1)
+            }
+            .font(.caption)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .fixedSize()
+        .help("Sample kit for shaker, tambourine, clap and maracas layers. Drum Kit = same as the drums; FreePats and World are dedicated layer kits with real hand-perc samples.")
     }
 }
 
@@ -1462,7 +1487,7 @@ struct HelpView: View {
             Text("The Bass switch turns the bass on or off. Off = drums only. On unlocks level, mute, kit and Bass Follow; the arrow folds them away. In songs with a bass line the bass keeps playing under fills; transitions and the ending use their own line when they have one. Mute silences the synth but still sends MIDI on channel 2.")
                 .font(.callout).foregroundStyle(.secondary)
             Text("Percussion").font(.title3.bold())
-            Text("A separate track like the bass: a song's own shaker, tambourine and clap. Import the folders shaker_songs, tambourine_songs and clap_songs (Artist / Title / Groove A.mid …); each part plays with the song of the same artist and title from drum_songs. The Percussion switch turns them all on or off, and each instrument has its own switch. Fills and transitions play the part's own fill if it has one, otherwise its groove keeps going.")
+            Text("A separate track like the bass: a song's own shaker, tambourine and clap. Import the folders shaker_songs, tambourine_songs and clap_songs (Artist / Title / Groove A.mid …); each part plays with the song of the same artist and title from drum_songs. The Percussion switch turns them all on or off, and each instrument has its own switch. The kit menu next to Auto picks the samples for those layers (Drum Kit, FreePats or World). Fills and transitions play the part's own fill if it has one, otherwise its groove keeps going.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack(spacing: 8) { Text("Bass Follow").font(.title3.bold()); BetaBadge() }
             Text("Experimental. Only when Bass is on. Chord detection can be wrong or late, especially with distorted guitar. For guitar audio: PedalBeat Drums FX on the Guitar track, or Side Chain to that track (not to PedalBeat itself). GTR appears when audio arrives. MIDI chords (any channel except 10) also work.")

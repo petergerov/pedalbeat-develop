@@ -153,7 +153,7 @@ targets:
         embed: true
         codeSign: true
     postCompileScripts:
-      # Shared with PedalBeatAU-iOS (*embedSolitito).
+      # Shared with PedalBeatAU-iOS (*embedSolitito / *embedPercKits).
       - &embedSolitito
         name: Embed Solitito Assets
         basedOnDependencyAnalysis: false
@@ -171,6 +171,21 @@ targets:
           DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Solitito"
           mkdir -p "${DEST}"
           cp -f "${SRC}/best_model_v2_take6_chords.onnx" "${SRC}/dsp_weights.json" "${SRC}/LICENSE" "${DEST}/"
+      - &embedPercKits
+        name: Embed Percussion Layer Kits
+        basedOnDependencyAnalysis: false
+        inputFiles:
+          - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit
+          - $(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit
+          - $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit
+        script: |
+          set -euo pipefail
+          SRC="${SRCROOT}/Extension/Resources/PercKits"
+          DEST="${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PercKits"
+          mkdir -p "${DEST}"
+          cp -f "${SRC}"/*.pbkit "${DEST}/"
     settings:
       base:
         PRODUCT_NAME: PedalBeatAU
@@ -250,6 +265,7 @@ targets:
       - framework: ThirdParty/onnxruntime/ios/onnxruntime.xcframework
         embed: false
     postCompileScripts:
+      - *embedPercKits
       - *embedSolitito
       - name: Embed Song Pack
         basedOnDependencyAnalysis: false

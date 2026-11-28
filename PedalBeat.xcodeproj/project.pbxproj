@@ -354,6 +354,7 @@
 			buildConfigurationList = 604DCE7325568731E3AB802F /* Build configuration list for PBXNativeTarget "PedalBeatAU-iOS" */;
 			buildPhases = (
 				4496F7F00FDF5E2CEBEFB730 /* Sources */,
+				E24132F3D0642A9D582C2A5B /* Embed Percussion Layer Kits */,
 				842B6721EE371594D7DB90B4 /* Embed Solitito Assets */,
 				C7E5BA4030C3ED7AA3A7A289 /* Embed Song Pack */,
 				714AD864729FE95F322594A4 /* Frameworks */,
@@ -375,6 +376,7 @@
 			buildPhases = (
 				CAF861384478D40DCAB9EFBF /* Sources */,
 				27E48CF5CEF8406605C8260F /* Embed Solitito Assets */,
+				902141384D8871F5AD35744A /* Embed Percussion Layer Kits */,
 				E6F21AC831278B58A6322F09 /* Frameworks */,
 				07F7D94FE843420947CA4029 /* Embed Frameworks */,
 			);
@@ -528,6 +530,29 @@
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/Extension/Resources/Solitito\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Solitito\"\nmkdir -p \"${DEST}\"\ncp -f \"${SRC}/best_model_v2_take6_chords.onnx\" \"${SRC}/dsp_weights.json\" \"${SRC}/LICENSE\" \"${DEST}/\"\n";
 		};
+		902141384D8871F5AD35744A /* Embed Percussion Layer Kits */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit",
+			);
+			name = "Embed Percussion Layer Kits";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/Extension/Resources/PercKits\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PercKits\"\nmkdir -p \"${DEST}\"\ncp -f \"${SRC}\"/*.pbkit \"${DEST}/\"\n";
+		};
 		C7E5BA4030C3ED7AA3A7A289 /* Embed Song Pack */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
@@ -546,6 +571,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "set -euo pipefail\n# Songs that ship with PedalBeat, both built by Tools/build-songpack.sh: MIDI Songs (own drums, bass,\n# percussion) and bb Songs (the bb beats and the songs' bb versions).\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Content\"\nmkdir -p \"${DEST}\"\nfor SRC in \"${SRCROOT}/Extension/Resources/Content/SongPack.pbcp\" \"${SRCROOT}/build/content/bb Songs.pbcp\"; do\n  if [[ -f \"${SRC}\" ]]; then\n    cp -f \"${SRC}\" \"${DEST}/\"\n  else\n    rm -f \"${DEST}/$(basename \"${SRC}\")\"\n    echo \"warning: ${SRC} is missing, so it is not built in (run Tools/build-songpack.sh)\"\n  fi\ndone\n";
+		};
+		E24132F3D0642A9D582C2A5B /* Embed Percussion Layer Kits */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-freepats.pbkit",
+				"$(SRCROOT)/Extension/Resources/PercKits/pedalbeat.layer-world.pbkit",
+			);
+			name = "Embed Percussion Layer Kits";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-freepats.pbkit",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/PercKits/pedalbeat.layer-world.pbkit",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/Extension/Resources/PercKits\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/PercKits\"\nmkdir -p \"${DEST}\"\ncp -f \"${SRC}\"/*.pbkit \"${DEST}/\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

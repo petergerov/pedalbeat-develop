@@ -1,5 +1,30 @@
 import Foundation
 
+/// Sample kit used for percussion-layer hits (shaker / tambourine / clap / maracas).
+/// `drumKit` keeps the current drum kit; the others are slim bundled `.pbkit` files.
+public enum PercLayerKit: Int, CaseIterable, Sendable, Identifiable {
+    case drumKit = 0, freepats, world
+
+    public var id: Int { rawValue }
+
+    public var name: String {
+        switch self {
+        case .drumKit: "Drum Kit"
+        case .freepats: "FreePats"
+        case .world: "World"
+        }
+    }
+
+    /// Installed `.pbkit` id to load; `nil` means use the drum kit.
+    public var sampleKitID: String? {
+        switch self {
+        case .drumKit: nil
+        case .freepats: "pedalbeat.layer-freepats"
+        case .world: "pedalbeat.layer-world"
+        }
+    }
+}
+
 /// Percussion layers that play along with a song's drums: a separate track with its own switch
 /// and level, like the bass. Each instrument comes from its own imported folder, laid out like the
 /// folder with the song's own drums:

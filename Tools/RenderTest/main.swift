@@ -2216,5 +2216,54 @@ do {
     print("Mixer voices checked: \(fewer) of \(library.songs.count) songs show fewer than \(Drum.count) strips")
 }
 
+// Percussion-layer kits: a layer hit plays the layer kit's own sample, over a sampled drum kit
+// (whose audio it must not read) and over a synth kit (no sampled drum kit at all).
+do {
+    let layerFiles = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: "Extension/Resources/PercKits"),
+                                                                    includingPropertiesForKeys: nil)) ?? [])
+        .filter { $0.pathExtension == "pbkit" }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+    let drumFile = kitFiles.first { $0.lastPathComponent.contains("cajon2") } ?? kitFiles.first
+    if layerFiles.isEmpty { print("(no layer kits in Extension/Resources/PercKits: layer-kit checks skipped)") }
+    let drumKit = try drumFile.map { try LoadedSampleKit(url: $0) }
+    let n = 2048
+    let l = UnsafeMutablePointer<Float>.allocate(capacity: n), r = UnsafeMutablePointer<Float>.allocate(capacity: n)
+    defer { l.deallocate(); r.deallocate() }
+    for file in layerFiles {
+        let layer = try LoadedSampleKit(url: file)
+        let lk = layer.raw.pointee
+        for drumBits in [drumKit?.bits ?? 0, 0] {
+            for inst in PercussionInstrument.allCases {
+                let d = inst.drum.rawValue
+                let sd = lk.drums[d]
+                guard sd.layerCount > 0 else { check(false, "\(layer.manifest.name) has \(inst.name)"); continue }
+                let sampler = Sampler()
+                sampler.setSampleRate(lk.sampleRate)   // step 1: the output is the region scaled by a constant
+                sampler.setKit(bits: drumBits)
+                sampler.setPercKit(bits: layer.bits)
+                l.update(repeating: 0, count: n); r.update(repeating: 0, count: n)
+                let played = sampler.triggerLayer(d, velocity: 1, delay: 0)
+                sampler.render(left: l, right: r, frames: n)
+                // Which of the instrument's regions matches the output (correlation ≈ 1)?
+                var best = 0.0
+                for li in 0..<Int(sd.layerCount) {
+                    let lay = lk.layers[Int(sd.firstLayer) + li]
+                    for ri in lay.first..<(lay.first + lay.count) {
+                        let reg = lk.regions[ri], m = min(n, reg.length - 2)
+                        var xy = 0.0, xx = 0.0, yy = 0.0
+                        for i in 0..<m {
+                            let x = Double(lk.audio[(reg.start + i) * 2]), y = Double(l[i])
+                            xy += x * y; xx += x * x; yy += y * y
+                        }
+                        if xx > 0 && yy > 0 { best = max(best, xy / (xx * yy).squareRoot()) }
+                    }
+                }
+                check(played && best > 0.999,
+                      "\(layer.manifest.name) \(inst.name) plays its own sample over \(drumBits == 0 ? "a synth kit" : drumKit!.manifest.name) (correlation \(best))")
+            }
+        }
+    }
+    print("Percussion-layer kits checked: \(layerFiles.map(\.lastPathComponent))")
+} catch { check(false, "layer-kit tests threw \(error)") }
+
 print(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) FAILURES")
 exit(failures == 0 ? 0 : 1)

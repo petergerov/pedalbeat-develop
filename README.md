@@ -45,6 +45,8 @@ Set `BBS_CONTENT=<content folder>` to also test the `.BBS` import.
 - `Extension/`: the AUAudioUnit subclass and its SwiftUI interface.
 - `Tools/KitBuilder/`: renders SFZ drum libraries into `.pbkit` kits, and `extract` unpacks a `.pbkit` to WAV + `kit.json`.
 - `Tools/BBKitBuilder/`: packs decoded drumsets (`drumsets-decoded/`) into `.pbkit` files in `bb-kits/`.
+  `build-cajon3-kits.py` stages the kits made from World Percussion samples (Cajón 3 WP, Layer World with its
+  prepared WP shaker) in `pedalbeat-data/build/kit-staging/` for it.
 - `Tools/SideChainProbe/`: hosts the installed AU through the AUv2 API like Logic does and feeds its track and Side Chain inputs, to check that Bass Follow gets audio.
 - `kits/`: ready-to-import sampled kits.
 - `songs/`: the factory songs as MIDI files (one folder per song, with `song.json`). Regenerate with `Tools/SongExport`.

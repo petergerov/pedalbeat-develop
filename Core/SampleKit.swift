@@ -262,7 +262,9 @@ struct SampleVoice {
     var active = false
     var drum = 0
     var delay = 0
-    var start = 0          // first frame (absolute in kit audio)
+    var audio: UnsafeMutablePointer<Int16>?   // interleaved stereo audio of the kit the hit came from
+    var layerKit = false   // from the percussion-layer kit (stopped when that kit changes)
+    var start = 0          // first frame (absolute in `audio`)
     var length = 0
     var pos: Double = 0    // relative position in frames
     var step: Double = 1
@@ -285,11 +287,14 @@ final class Sampler {
     /// Per-drum peak for the current render block (absolute sample level). Cleared by the engine.
     let channelPeak: UnsafeMutablePointer<Float>
     private var kit: SampleKitRaw?
+    private var percKit: SampleKitRaw?
     private(set) var kitBits = 0
+    private(set) var percKitBits = 0
     private var outRate: Double = 44100
     private var rng: UInt32 = 0x2545F491
     private var serial = 0
     private var lastRegion = [Int](repeating: -1, count: Drum.count)
+    private var lastPercRegion = [Int](repeating: -1, count: Drum.count)
     /// Output frames per beat at the current tempo (set by the engine every render).
     var beatFrames: Double = 22050
 
@@ -320,6 +325,15 @@ final class Sampler {
         for i in 0..<Drum.count { lastRegion[i] = -1 }
     }
 
+    /// Audio thread: kit for percussion-layer hits only (0 = use the drum kit).
+    func setPercKit(bits: Int) {
+        // Its voices read the old kit's audio, which is freed once the engine acknowledges the switch.
+        for i in 0..<voiceCount where voices[i].layerKit { voices[i].active = false }
+        percKitBits = bits
+        percKit = UnsafeMutablePointer<SampleKitRaw>(bitPattern: bits)?.pointee
+        for i in 0..<Drum.count { lastPercRegion[i] = -1 }
+    }
+
     func has(_ drum: Int) -> Bool {
         guard let k = kit else { return false }
         return k.drums[drum].layerCount > 0
@@ -333,6 +347,19 @@ final class Sampler {
     /// Returns false if the active kit has no sample for this drum.
     func trigger(_ drum: Int, velocity: Float, delay: Int, gain: Float = 1) -> Bool {
         guard let k = kit else { return false }
+        return trigger(drum, velocity: velocity, delay: delay, gain: gain, kit: k, last: &lastRegion)
+    }
+
+    /// Percussion-layer hit: prefer the layer kit, else the drum kit.
+    func triggerLayer(_ drum: Int, velocity: Float, delay: Int, gain: Float = 1) -> Bool {
+        if let pk = percKit, pk.drums[drum].layerCount > 0 {
+            return trigger(drum, velocity: velocity, delay: delay, gain: gain, kit: pk, last: &lastPercRegion, layerKit: true)
+        }
+        return trigger(drum, velocity: velocity, delay: delay, gain: gain)
+    }
+
+    private func trigger(_ drum: Int, velocity: Float, delay: Int, gain: Float,
+                         kit k: SampleKitRaw, last: inout [Int], layerKit: Bool = false) -> Bool {
         let d = k.drums[drum]
         guard d.layerCount > 0 else { return false }
         let v127 = min(max(velocity, 0.0), 1.0) * 127
@@ -343,13 +370,13 @@ final class Sampler {
         let layer = k.layers[d.firstLayer + li]
         // Round robin: random, never the same region twice in a row.
         var ri = layer.first + Int(random() % UInt32(layer.count))
-        if layer.count > 1 && ri == lastRegion[drum] { ri = layer.first + (ri - layer.first + 1) % layer.count }
-        lastRegion[drum] = ri
+        if layer.count > 1 && ri == last[drum] { ri = layer.first + (ri - layer.first + 1) % layer.count }
+        last[drum] = ri
         let region = k.regions[ri]
         let dyn = powf(max(v127, 1) / layer.hiVel, 0.55) * max(gain, 0)
 
         let dly = max(delay, 0)
-        if d.sweep { return triggerSweep(drum, d: d, region: region, gain: region.gain * dyn, delay: dly, kit: k) }
+        if d.sweep { return triggerSweep(drum, d: d, region: region, gain: region.gain * dyn, delay: dly, kit: k, layerKit: layerKit) }
         // Hi-hat choke.
         if drum == Drum.hatClosed.rawValue || drum == Drum.hatPedal.rawValue {
             let base = Drum.hatOpen.rawValue * Sampler.voicesPerDrum
@@ -378,6 +405,8 @@ final class Sampler {
         nv.active = true
         nv.drum = drum
         nv.delay = dly
+        nv.audio = k.audio
+        nv.layerKit = layerKit
         nv.start = region.start
         nv.length = region.length
         nv.step = k.sampleRate / outRate
@@ -391,7 +420,8 @@ final class Sampler {
 
     /// A sweep continues the stir: it crossfades out the previous sweep, starts at a random
     /// point of a long recording with a short fade-in, and releases after two beats.
-    private func triggerSweep(_ drum: Int, d: SDrum, region: SRegion, gain: Float, delay dly: Int, kit k: SampleKitRaw) -> Bool {
+    private func triggerSweep(_ drum: Int, d: SDrum, region: SRegion, gain: Float, delay dly: Int,
+                              kit k: SampleKitRaw, layerKit: Bool) -> Bool {
         let xfade = Float(0.04 * outRate)
         let base = drum * Sampler.voicesPerDrum
         var slot = -1, oldest = base
@@ -415,6 +445,8 @@ final class Sampler {
         nv.active = true
         nv.drum = drum
         nv.delay = dly
+        nv.audio = k.audio
+        nv.layerKit = layerKit
         nv.start = region.start + offset
         nv.length = region.length - offset
         nv.step = step
@@ -440,12 +472,11 @@ final class Sampler {
                 busesR: UnsafeMutablePointer<UnsafeMutablePointer<Float>>?,
                 busCount: Int,
                 left: UnsafeMutablePointer<Float>, right: UnsafeMutablePointer<Float>, frames: Int) {
-        guard let k = kit else { return }
-        let a = k.audio
         let chokeStep = 1 / Float(0.025 * outRate)
         let multi = busesL != nil && busesR != nil && busCount > 1
         for vi in 0..<voiceCount where voices[vi].active {
             var v = voices[vi]
+            guard let a = v.audio else { voices[vi].active = false; continue }
             var i = 0
             let last = Double(v.length - 2)
             let mg = mixGain[min(max(v.drum, 0), Drum.count - 1)]
@@ -539,10 +570,14 @@ public final class KitManager: @unchecked Sendable {
     private let installedDirectory: URL?
     private var installed: [Installed] = []
     private var loaded: LoadedSampleKit?
+    private var loadedPerc: LoadedSampleKit?
     private var retired: [LoadedSampleKit] = []
     private var loadingID: String?
+    private var loadingPercID: String?
     private let queue = DispatchQueue(label: "pedalbeat.kitloader", qos: .userInitiated)
     public var onChange: (@Sendable () -> Void)?
+    /// Currently selected percussion-layer kit (`PercLayerKit`).
+    private var percLayerChoice = PercLayerKit.drumKit
 
     public init(engine: DrumEngine, directory: URL? = nil, installedDirectory: URL? = nil) {
         self.engine = engine
@@ -570,12 +605,6 @@ public final class KitManager: @unchecked Sendable {
 
     public func index(forID id: String) -> Int? {
         kits.firstIndex { $0.id == id }.map { $0 + Kits.all.count }
-    }
-
-    /// Best kit for a song's synth-kit hint: an installed kit that declares it, else the synth kit.
-    public func suggestedKit(forHint hint: Int) -> Int {
-        if let i = kits.firstIndex(where: { $0.manifest.suggestFor.contains(hint) }) { return i + Kits.all.count }
-        return hint
     }
 
     private func rescan() {
@@ -611,8 +640,13 @@ public final class KitManager: @unchecked Sendable {
 
     public func remove(id: String) {
         guard let k = kits.first(where: { $0.id == id }), k.removable else { return }
+        let wasPerc = lock.withLock { loadedPerc?.manifest.id == id }
         try? FileManager.default.removeItem(at: k.url)
-        lock.withLock { if loaded?.manifest.id == id { loadingID = nil } }
+        lock.withLock {
+            if loaded?.manifest.id == id { loadingID = nil }
+            if wasPerc { loadingPercID = nil; percLayerChoice = .drumKit }
+        }
+        if wasPerc { selectPercLayer(.drumKit) }
         rescan()
         onChange?()
     }
@@ -649,11 +683,63 @@ public final class KitManager: @unchecked Sendable {
         }
     }
 
-    public var isLoading: Bool { lock.withLock { loadingID != nil } }
+    public var isLoading: Bool { lock.withLock { loadingID != nil || loadingPercID != nil } }
     private var lastError: String?
     /// Error from the last failed kit load, if any.
     public var loadError: String? { lock.withLock { lastError } }
     public var activeSampleKitID: String? { lock.withLock { loaded?.manifest.id } }
+    public var activePercLayerKit: PercLayerKit { lock.withLock { percLayerChoice } }
+    public var activePercSampleKitID: String? { lock.withLock { loadedPerc?.manifest.id } }
+
+    /// Which of the slim layer kits are installed and selectable (always includes Drum Kit).
+    public var availablePercLayerKits: [PercLayerKit] {
+        PercLayerKit.allCases.filter { choice in
+            guard let id = choice.sampleKitID else { return true }
+            return kits.contains { $0.id == id }
+        }
+    }
+
+    /// Selects the sample kit used for percussion-layer hits. `drumKit` clears the override.
+    public func selectPercLayer(_ choice: PercLayerKit) {
+        guard let engine else { return }
+        reclaim()
+        lock.withLock { percLayerChoice = choice }
+        guard let id = choice.sampleKitID else {
+            lock.withLock { loadingPercID = nil }
+            publishPerc(nil, engine: engine)
+            return
+        }
+        guard let inst = kits.first(where: { $0.id == id }) else {
+            lock.withLock {
+                loadingPercID = nil
+                lastError = "\(choice.name) layer kit isn’t installed."
+            }
+            publishPerc(nil, engine: engine)
+            onChange?()
+            return
+        }
+        let already: Bool = lock.withLock {
+            if loadedPerc?.manifest.id == inst.id || loadingPercID == inst.id { return true }
+            loadingPercID = inst.id
+            return false
+        }
+        if already { return }
+        queue.async { [weak self] in
+            guard let self else { return }
+            let result = Result { try LoadedSampleKit(url: inst.url) }
+            let current = self.lock.withLock { self.loadingPercID == inst.id }
+            guard current else { return }
+            switch result {
+            case .success(let kit):
+                self.publishPerc(kit, engine: engine)
+                self.lock.withLock { self.loadingPercID = nil; self.lastError = nil }
+            case .failure(let error):
+                self.lock.withLock { self.loadingPercID = nil; self.lastError = "\(inst.name): \(error.localizedDescription)" }
+                self.publishPerc(nil, engine: engine)
+            }
+            self.onChange?()
+        }
+    }
 
     private func publish(_ kit: LoadedSampleKit?, engine: DrumEngine) {
         lock.withLock {
@@ -664,17 +750,47 @@ public final class KitManager: @unchecked Sendable {
         reclaim()
     }
 
+    private func publishPerc(_ kit: LoadedSampleKit?, engine: DrumEngine) {
+        lock.withLock {
+            if let old = loadedPerc, old !== kit { retired.append(old) }
+            loadedPerc = kit
+            engine.publishPercSampleKit(bits: kit?.bits ?? 0)
+        }
+        reclaim()
+    }
+
     /// Frees retired kits once the audio thread has moved off them.
     private func reclaim() {
         guard let engine else { return }
         let pending: Bool = lock.withLock {
-            let inUse = engine.sampleKitInUse
-            let published = engine.publishedSampleKit
-            retired.removeAll { $0.bits != inUse && $0.bits != published }
+            let keep: Set<Int> = [engine.sampleKitInUse, engine.publishedSampleKit,
+                                  engine.percSampleKitInUse, engine.publishedPercSampleKit]
+            retired.removeAll { !keep.contains($0.bits) }
             return !retired.isEmpty
         }
         if pending {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.reclaim() }
         }
+    }
+
+    /// Copies bundled layer kits from the plug-in Resources into the user Kits folder.
+    /// Always refreshes known layer-kit ids so sample fixes ship on update.
+    public func ensureBundledLayerKits(from bundles: [Bundle]) {
+        let needed = Set(PercLayerKit.allCases.compactMap(\.sampleKitID))
+        guard !needed.isEmpty else { return }
+        var imported = false
+        for bundle in bundles {
+            guard let res = bundle.resourceURL else { continue }
+            for folder in ["PercKits", "Kits", "Content/PercKits"] {
+                let dir = res.appendingPathComponent(folder, isDirectory: true)
+                let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+                for url in files where url.pathExtension.lowercased() == "pbkit" {
+                    guard let m = try? KitFile.readManifest(url: url), needed.contains(m.id) else { continue }
+                    if (try? importKit(from: url)) != nil { imported = true }
+                }
+            }
+        }
+        if imported { onChange?() }
+        else { rescan() }
     }
 }

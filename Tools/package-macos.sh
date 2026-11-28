@@ -113,6 +113,8 @@ COMPONENT_IDS=(app)
 content_pkg() {
   local id="$1" root="$2"
   find "${root}" -name .DS_Store -delete
+  # No extended attributes (e.g. com.apple.provenance): pkgbuild would ship them as ._ files.
+  xattr -cr "${root}"
   chmod -R u=rwX,go=rX "${root}"
   pkgbuild --root "${root}" --install-location "${CONTENT_ROOT}" --identifier "com.pedalbeat.pkg.${id}" \
     --version "${VERSION}" "${COMPONENTS}/${id}.pkg" >/dev/null

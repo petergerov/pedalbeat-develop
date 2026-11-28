@@ -66,7 +66,9 @@ public enum ParamAddress: UInt64, CaseIterable, Sendable {
          /// Appended: Maracas switch, and Auto Percussion (generated layers for beats without their own, default off).
          percMaracas, percAuto,
          /// Bass Follow: when pending chords may become the sounding harmony (strong beats default).
-         chordCommitGrid
+         chordCommitGrid,
+         /// Sample kit for percussion layers (`PercLayerKit`: Drum Kit / FreePats / World / Body).
+         percKit
 }
 
 /// One MIDI message for the AU MIDI output (drum notes or realtime clock).
@@ -142,6 +144,8 @@ public final class DrumEngine: @unchecked Sendable {
     public let percVolume = AtomicFloat(1)
     public let percInstruments = AtomicInt((1 << PercussionInstrument.count) - 1)
     public let percAuto = AtomicInt(0)
+    /// Percussion-layer sample kit (`PercLayerKit` raw value).
+    public let percKit = AtomicInt(0)
     /// Bass Follow (beta): transposes the bass line to live chords (MIDI and/or guitar audio).
     let bassFollow = BassFollow()
 
@@ -175,6 +179,8 @@ public final class DrumEngine: @unchecked Sendable {
     private var clockWasPaused = false
     private let sampleKitSlot = Atomic<Int>(0)   // published LoadedSampleKit (raw bits), 0 = none
     private let sampleKitAck = Atomic<Int>(0)    // kit the audio thread is currently using
+    private let percSampleKitSlot = Atomic<Int>(0)
+    private let percSampleKitAck = Atomic<Int>(0)
     private var levelMeter: Float = 0
     /// Ballistic per-drum meters (audio thread writes, UI reads).
     private let channelMeter: UnsafeMutablePointer<Float>
@@ -384,6 +390,8 @@ public final class DrumEngine: @unchecked Sendable {
             let bit = 1 << inst.rawValue
             percInstruments.value = on ? percInstruments.value | bit : percInstruments.value & ~bit
             sequencerLock.withLock { sequencer.setPercussion(instrument: inst.rawValue, on: on) }
+        case .percKit:
+            percKit.value = min(max(Int(value.rounded()), 0), PercLayerKit.allCases.count - 1)
         }
     }
 
@@ -413,6 +421,7 @@ public final class DrumEngine: @unchecked Sendable {
         case .percShaker, .percTambourine, .percClap, .percMaracas:
             Float(PercussionInstrument.allCases.first { $0.parameter == address }
                 .map { (percInstruments.value >> $0.rawValue) & 1 } ?? 0)
+        case .percKit: Float(percKit.value)
         }
     }
 
@@ -420,6 +429,10 @@ public final class DrumEngine: @unchecked Sendable {
     func publishSampleKit(bits: Int) { sampleKitSlot.store(bits, ordering: .releasing) }
     var publishedSampleKit: Int { sampleKitSlot.load(ordering: .acquiring) }
     var sampleKitInUse: Int { sampleKitAck.load(ordering: .acquiring) }
+
+    func publishPercSampleKit(bits: Int) { percSampleKitSlot.store(bits, ordering: .releasing) }
+    var publishedPercSampleKit: Int { percSampleKitSlot.load(ordering: .acquiring) }
+    var percSampleKitInUse: Int { percSampleKitAck.load(ordering: .acquiring) }
 
     public var status: EngineStatus {
         let pending = sPending.value
@@ -527,6 +540,11 @@ public final class DrumEngine: @unchecked Sendable {
         if kitBits != synth.sampler.kitBits {
             synth.sampler.setKit(bits: kitBits)
             sampleKitAck.store(kitBits, ordering: .releasing)
+        }
+        let percBits = percSampleKitSlot.load(ordering: .acquiring)
+        if percBits != synth.sampler.percKitBits {
+            synth.sampler.setPercKit(bits: percBits)
+            percSampleKitAck.store(percBits, ordering: .releasing)
         }
         let kitIndex = kit.value
         let sampled = kitIndex >= Kits.all.count

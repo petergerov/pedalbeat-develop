@@ -129,6 +129,7 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
                          options: AudioComponentInstantiationOptions = []) throws {
         library = SongLibrary(store: engine.store)
         kits = KitManager(engine: engine, installedDirectory: InstalledContent.kitsFolder)
+        kits.ensureBundledLayerKits(from: [Bundle(for: PedalBeatAudioUnit.self), Bundle.main])
         // Songs that ship with PedalBeat (iOS: MIDI Songs and bb Songs built in) or were installed with it
         // (macOS: the MIDI Songs and bb Songs installers); before the user library so edited copies replace them.
         let builtIn = ContentPack.builtInPacks(in: [Bundle(for: PedalBeatAudioUnit.self), Bundle.main])
@@ -217,6 +218,8 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             p("percClap", "Clap", .percClap, 0, 1, .boolean),
             p("percMaracas", "Maracas", .percMaracas, 0, 1, .boolean),
             p("percAuto", "Auto Percussion", .percAuto, 0, 1, .boolean),
+            p("percKit", "Percussion Kit", .percKit, 0, Float(PercLayerKit.allCases.count - 1), .indexed,
+              strings: PercLayerKit.allCases.map(\.name)),
         ]
         for prm in params {
             if let a = ParamAddress(rawValue: prm.address) { prm.value = engine.parameter(a) }
@@ -229,6 +232,10 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             guard let a = ParamAddress(rawValue: param.address) else { return }
             engine.setParameter(a, value)
             if a == .kit { kits.select(index: Int(engine.parameter(.kit))) }
+            if a == .percKit {
+                let choice = PercLayerKit(rawValue: Int(engine.parameter(.percKit))) ?? .drumKit
+                kits.selectPercLayer(choice)
+            }
         }
         tree.implementorValueProvider = { param in
             ParamAddress(rawValue: param.address).map { engine.parameter($0) } ?? 0
@@ -245,6 +252,7 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
             case .bassKit: return BassKit(rawValue: Int(v.rounded()))?.name ?? "Bass"
             case .chordTimbre: return ChordTimbre(rawValue: Int(v.rounded()))?.name ?? "Mixed"
             case .chordCommitGrid: return ChordCommitGrid(rawValue: Int(v.rounded()))?.name ?? "Strong Beats"
+            case .percKit: return PercLayerKit(rawValue: Int(v.rounded()))?.name ?? "Drum Kit"
             default: return String(format: "%.0f", v)
             }
         }
@@ -430,6 +438,7 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
     private let songKey = "pedalbeat.songKey"
     private let importsKey = "pedalbeat.imports"
     private let kitKey = "pedalbeat.kitID"
+    private let percKitKey = "pedalbeat.percKitID"
 
     public override var fullState: [String: Any]? {
         get {
@@ -443,6 +452,9 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
                 }
             }
             if let k = kits.installed(at: Int(engine.parameter(.kit))) { state[kitKey] = k.id }
+            if let choice = PercLayerKit(rawValue: Int(engine.parameter(.percKit))) {
+                state[percKitKey] = choice.sampleKitID ?? "drum"
+            }
             return state
         }
         set {
@@ -457,6 +469,12 @@ public final class PedalBeatAudioUnit: AUAudioUnit, @unchecked Sendable {
                 parameter(.kit)?.value = Float(kits.index(forID: id) ?? 0)
             } else if Int(engine.parameter(.kit)) >= Kits.all.count {
                 parameter(.kit)?.value = 0
+            }
+            if let id = s[percKitKey] as? String {
+                let choice: PercLayerKit = id == "drum"
+                    ? .drumKit
+                    : (PercLayerKit.allCases.first { $0.sampleKitID == id } ?? .drumKit)
+                parameter(.percKit)?.value = Float(choice.rawValue)
             }
         }
     }

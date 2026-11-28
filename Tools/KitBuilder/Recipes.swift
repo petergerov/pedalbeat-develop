@@ -5,6 +5,8 @@ enum Recipes {
     static let all: [KitRecipe] = [
         jazz, brushes, studio, bigRoom, cajon, cajon2, cajon3, cajonFlamenco, worldPercussion, bobobo,
         body, bodyStomp, bodyHands, bodyChest, bodyStereo,
+        // Slim kits for the Percussion-layer picker (shaker / tamb / clap / maracas only).
+        layerFreepats,
     ]
 
     // Virtuosity Drums: contemporary jazz kit played with sticks (CC0).
@@ -437,4 +439,21 @@ enum Recipes {
             D(.shaker, 57, layers: 1, rr: 6, sec: 0.45, db: 3, pan: 0.8),
             D(.tambourine, 52, layers: 1, rr: 4, sec: 0.45, db: 2, pan: -0.8),
         ])
+
+    /// Percussion-layer kit: FreePats hand perc only (CC0), for the Percussion picker.
+    static let layerFreepats = KitRecipe(
+        id: "pedalbeat.layer-freepats", name: "Layer FreePats", category: "layer",
+        author: "FreePats / Xavimart (World Percussion)",
+        license: "CC0-1.0", source: "https://github.com/freepats/world-percussion",
+        notes: "Slim kit for PedalBeat percussion layers: egg shaker, tambourine, handclap, maracas.",
+        dir: "world-percussion", program: "WorldPercussion 20200905.sfz", outRate: 48000,
+        fallbackSynthKit: 0, suggestFor: [],
+        targetPeak: 0.90,
+        drums: [
+            D(.clap, 59, layers: 1, rr: 6, sec: 0.7, db: 1),
+            D(.shaker, 54, layers: 1, rr: 8, sec: 0.5, db: 0),
+            D(.tambourine, 57, layers: 1, rr: 8, sec: 0.75, db: 0),
+            D(.maracas, 67, layers: 1, rr: 8, sec: 0.5, db: 0),
+        ])
+
 }

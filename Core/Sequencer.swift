@@ -532,7 +532,8 @@ final class Sequencer {
     // MARK: Event output
 
     /// `gain` scales the sound only (percussion level); MIDI out keeps the written velocity.
-    private func trigger(_ drum: Int, velocity: Float, offset: Int, humanized: Bool = true, gain: Float = 1) {
+    private func trigger(_ drum: Int, velocity: Float, offset: Int, humanized: Bool = true,
+                         gain: Float = 1, layer: Bool = false) {
         var vel = velocity
         var off = offset
         if humanized && humanize > 0 {
@@ -544,7 +545,7 @@ final class Sequencer {
             off += Int(Double(r2) * humanize * 0.010 * sampleRate)
         }
         vel = min(max(vel, 0.02), 1)
-        synth.trigger(drum, velocity: vel, delay: off, gain: gain)
+        synth.trigger(drum, velocity: vel, delay: off, gain: gain, layer: layer)
         if outCount < outCapacity, let d = Drum(rawValue: drum) {
             outEvents[outCount] = OutEvent(offset: Int32(chunkOffset + off), note: d.gmNote,
                                            velocity: UInt8(min(127, max(1, Int(vel * 127)))))
@@ -644,7 +645,8 @@ final class Sequencer {
                     let e = store.events[i]
                     let t = Double(e.tick) + swing * Double(e.swingUnit) + 1e-6
                     if t >= from && t < to {
-                        trigger(Int(e.drum), velocity: Float(e.velocity) / 127, offset: Int(base + (t - from) / tps), gain: percGain)
+                        trigger(Int(e.drum), velocity: Float(e.velocity) / 127,
+                                offset: Int(base + (t - from) / tps), gain: percGain, layer: true)
                     }
                     i += 1
                 }

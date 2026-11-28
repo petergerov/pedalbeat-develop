@@ -35,6 +35,10 @@ final class PedalViewModel: ObservableObject {
     @Published var percInstruments = [Bool](repeating: true, count: PercussionInstrument.count)
     /// Auto Percussion: beats without percussion of their own play generated layers (default off).
     @Published var percAuto = false
+    /// Sample kit for percussion layers (Drum Kit / FreePats / World / Body).
+    @Published var percKit: PercLayerKit = .drumKit
+    /// Layer kits that are installed and can be selected.
+    @Published var availablePercKits: [PercLayerKit] = PercLayerKit.allCases
     /// Imported layers per instrument.
     @Published var percussionCounts: [PercussionInstrument: Int] = [:]
     @Published var importMessage: String?
@@ -132,6 +136,7 @@ final class PedalViewModel: ObservableObject {
         percVolume = Double(engine.parameter(.percVolume))
         percInstruments = PercussionInstrument.allCases.map { engine.parameter($0.parameter) >= 0.5 }
         percAuto = engine.parameter(.percAuto) >= 0.5
+        percKit = PercLayerKit(rawValue: Int(engine.parameter(.percKit))) ?? .drumKit
         selectedSong = Int(engine.parameter(.song))
     }
 
@@ -150,6 +155,12 @@ final class PedalViewModel: ObservableObject {
     func setAutoPercussion(_ on: Bool) {
         percAuto = on
         set(.percAuto, on ? 1 : 0)
+    }
+
+    func setPercKit(_ choice: PercLayerKit) {
+        percKit = choice
+        set(.percKit, Double(choice.rawValue))
+        kitLoading = au.kits.isLoading
     }
 
     func setPercussion(_ inst: PercussionInstrument, on: Bool) {
@@ -383,6 +394,7 @@ final class PedalViewModel: ObservableObject {
     func reloadKits() {
         sampleKits = au.kits.kits
         kitNames = au.kits.allKitNames
+        availablePercKits = au.kits.availablePercLayerKits
         kitLoading = au.kits.isLoading
         if let e = au.kits.loadError, e != shownKitError {
             shownKitError = e
@@ -450,9 +462,6 @@ final class PedalViewModel: ObservableObject {
     private func mixDefaultsKey(_ songKey: String) -> String {
         "pedalbeat.songMix.\(songKey)"
     }
-
-    /// Best kit for a song: an installed sample kit that suits it, else its synth kit.
-    func suggestedKit(for song: SongInfo) -> Int { au.kits.suggestedKit(forHint: song.kitHint) }
 
     /// Kit indices shift when kits are added or removed; keep the current one selected.
     private func keepKit(id: String?) {
